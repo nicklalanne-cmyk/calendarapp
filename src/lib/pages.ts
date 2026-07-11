@@ -138,7 +138,10 @@ export type Template = {
   properties: { name: string; type: PropType; choices?: string[] }[];
   /** which property (by name) to group by */
   groupBy?: string;
-  sampleTitles?: string[];
+  /** which date property (by name) the calendar view should plot */
+  dateProp?: string;
+  /** seed rows so the page isn't an empty grid on day one */
+  seed?: string[];
 };
 
 export const TEMPLATES: Template[] = [
@@ -152,52 +155,84 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: "crm",
-    name: "CRM / Pipeline",
-    description: "Leads, deal value, last contacted, company, email.",
+    name: "CRM",
+    description: "Leads and deals — status, value, last contacted, contact details.",
     icon: "🤝",
     view: "table",
     groupBy: "Status",
+    dateProp: "Follow up",
     properties: [
-      { name: "Status", type: "select", choices: ["Leads", "Qualified", "Under contract", "Closed", "Lost"] },
+      {
+        name: "Status",
+        type: "select",
+        choices: ["Lead", "Qualified", "Showing", "Under contract", "Closed", "Lost"],
+      },
       { name: "Value", type: "currency" },
       { name: "Last contacted", type: "date" },
+      { name: "Follow up", type: "date" },
       { name: "Priority", type: "checkbox" },
       { name: "Company", type: "text" },
-      { name: "Email", type: "email" },
       { name: "Phone", type: "phone" },
-    ],
-  },
-  {
-    id: "tasks",
-    name: "Task list",
-    description: "Done, due date, priority, notes.",
-    icon: "✅",
-    view: "table",
-    groupBy: "Stage",
-    properties: [
-      { name: "Stage", type: "select", choices: ["To do", "In progress", "Done"] },
-      { name: "Done", type: "checkbox" },
-      { name: "Due", type: "date" },
-      { name: "Priority", type: "select", choices: ["High", "Medium", "Low"] },
+      { name: "Email", type: "email" },
       { name: "Notes", type: "text" },
     ],
   },
   {
-    id: "listings",
-    name: "Listings",
-    description: "Address, price, status, list date, seller.",
-    icon: "🏡",
-    view: "board",
-    groupBy: "Status",
+    id: "project",
+    name: "Project",
+    description:
+      "A house project. One row per trade or scope — contractor, quote, timeline, follow-ups.",
+    icon: "🏗️",
+    view: "table",
+    groupBy: "Stage",
+    dateProp: "Next follow-up",
     properties: [
-      { name: "Status", type: "select", choices: ["Prospect", "Coming soon", "Active", "Pending", "Sold"] },
-      { name: "Price", type: "currency" },
-      { name: "List date", type: "date" },
-      { name: "Seller", type: "text" },
+      {
+        name: "Stage",
+        type: "select",
+        choices: [
+          "Scoping",
+          "Awaiting quote",
+          "Quote received",
+          "Approved",
+          "In progress",
+          "Blocked",
+          "Complete",
+        ],
+      },
+      { name: "Contractor", type: "text" },
       { name: "Phone", type: "phone" },
+      { name: "Email", type: "email" },
+      { name: "Quote", type: "currency" },
+      { name: "Actual cost", type: "currency" },
+      { name: "Paid", type: "checkbox" },
+      { name: "Start", type: "date" },
+      { name: "Target finish", type: "date" },
+      { name: "Next follow-up", type: "date" },
+      { name: "Notes", type: "text" },
+    ],
+    // A house project has the same trades every time — start with the scaffolding.
+    seed: [
+      "Demo & haul-away",
+      "Permits",
+      "Framing",
+      "Roofing",
+      "Windows & doors",
+      "Plumbing",
+      "Electrical",
+      "HVAC",
+      "Insulation & drywall",
+      "Cabinets & millwork",
+      "Countertops",
+      "Flooring",
+      "Tile",
+      "Paint",
+      "Landscaping",
+      "Final clean & punch list",
     ],
   },
 ];
+
 
 // ---------------------------------------------------------------------------
 // Changing a property's type must not silently destroy data.

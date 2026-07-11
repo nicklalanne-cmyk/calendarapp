@@ -69,10 +69,34 @@ export default function PagesList() {
         .select();
       if (pErr) toast(pErr.message, "error");
 
-      // point group_by at the template's grouping column
-      if (t.groupBy && created) {
-        const g = (created as { id: string; name: string }[]).find((p) => p.name === t.groupBy);
-        if (g) await supabase.from("pages").update({ group_by: g.id }).eq("id", page.id);
+      const cols = (created as { id: string; name: string }[] | null) ?? [];
+
+      // point group_by / date_prop at the template's nominated columns
+      const patch: Record<string, string> = {};
+      const g = t.groupBy ? cols.find((c) => c.name === t.groupBy) : null;
+      if (g) patch.group_by = g.id;
+      const d = t.dateProp ? cols.find((c) => c.name === t.dateProp) : null;
+      if (d) patch.date_prop = d.id;
+      if (Object.keys(patch).length) {
+        await supabase.from("pages").update(patch).eq("id", page.id);
+      }
+
+      // seed the standard rows, pre-set to the first stage so they group sensibly
+      if (t.seed?.length) {
+        const stage = g
+          ? (rows.find((r) => r.name === t.groupBy)?.options as
+              | { choices?: { id: string }[] }
+              | undefined)?.choices?.[0]?.id
+          : undefined;
+
+        const seedRows = t.seed.map((title, i) => ({
+          page_id: page.id,
+          title,
+          position: i,
+          props: g && stage ? { [g.id]: stage } : {},
+        }));
+        const { error: sErr } = await supabase.from("page_records").insert(seedRows);
+        if (sErr) toast(sErr.message, "error");
       }
     }
 
