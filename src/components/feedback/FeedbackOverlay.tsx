@@ -18,18 +18,13 @@ type Item = {
 
 const BULLET = "• ";
 
-/** Keeps every line prefixed with a bullet as you type. */
-function autoBullet(v: string) {
-  if (v === "") return "";
-  return v
-    .split("\n")
-    .map((line) => {
-      const t = line.replace(/^[•\-*]\s*/, "");
-      return t.length ? BULLET + t : BULLET;
-    })
-    .join("\n");
-}
-
+/**
+ * Bullets are INSERTED on Enter and then left alone.
+ *
+ * The first version rewrote the whole textarea on every keystroke to force a
+ * "• " onto each line — which meant deleting a bullet instantly re-added it and
+ * you physically could not remove a line. Never fight the user's cursor.
+ */
 function stripBullets(v: string) {
   return v
     .split("\n")
@@ -142,11 +137,49 @@ export default function FeedbackOverlay({
             ref={ta}
             value={text}
             rows={5}
-            onChange={(e) => setText(autoBullet(e.target.value))}
+            onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
                 submit();
+                return;
+              }
+
+              const el = e.currentTarget;
+              const { selectionStart: a, selectionEnd: b, value } = el;
+
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                const lineStart = value.lastIndexOf("\n", a - 1) + 1;
+                const line = value.slice(lineStart, a);
+
+                // Enter on an empty bullet ends the list, rather than making
+                // another empty one you'd then have to delete.
+                if (line.trim() === BULLET.trim()) {
+                  const next = value.slice(0, lineStart) + value.slice(b);
+                  setText(next);
+                  requestAnimationFrame(() => el.setSelectionRange(lineStart, lineStart));
+                  return;
+                }
+
+                const next = value.slice(0, a) + "\n" + BULLET + value.slice(b);
+                setText(next);
+                const caret = a + 1 + BULLET.length;
+                requestAnimationFrame(() => el.setSelectionRange(caret, caret));
+                return;
+              }
+
+              // Backspace sitting just after a "• " removes the whole marker in
+              // one press, instead of leaving a stray bullet character behind.
+              if (e.key === "Backspace" && a === b) {
+                const lineStart = value.lastIndexOf("\n", a - 1) + 1;
+                if (a === lineStart + BULLET.length && value.slice(lineStart, a) === BULLET) {
+                  e.preventDefault();
+                  const cut = lineStart === 0 ? 0 : lineStart - 1; // also eat the newline
+                  const next = value.slice(0, cut) + value.slice(a);
+                  setText(next);
+                  requestAnimationFrame(() => el.setSelectionRange(cut, cut));
+                }
               }
             }}
             placeholder={
@@ -157,7 +190,7 @@ export default function FeedbackOverlay({
             className="w-full resize-y rounded-xl border border-border bg-bg px-3 py-2.5 text-[15px] leading-relaxed outline-none focus:border-accent md:text-sm"
           />
           <p className="mt-1 px-1 text-[11px] text-txt3">
-            Each line becomes a bullet. ⌘/Ctrl+Enter to send.
+            Enter starts a new bullet · empty bullet + Enter ends the list · ⌘/Ctrl+Enter sends
           </p>
 
           <button
