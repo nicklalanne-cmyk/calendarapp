@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Pen, Highlighter, Eraser, Undo2, Redo2, Trash2, Hand, Sparkles, Loader2, Check,
+  Pen, Highlighter, Eraser, Undo2, Redo2, Trash2, Hand, Sparkles, Loader2,
+  Maximize2, Minimize2,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -25,7 +26,9 @@ export default function InkCanvas({
   onTranscribe: (strokes: Stroke[], height: number) => void;
   transcribing?: boolean;
 }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const baseRef = useRef<HTMLCanvasElement>(null); // committed strokes
   const liveRef = useRef<HTMLCanvasElement>(null); // the stroke in progress
 
@@ -38,7 +41,11 @@ export default function InkCanvas({
   // Palm rejection: once we've seen a real pen, touch stops drawing and is
   // used only for scrolling. Without this, your hand resting on a Tab S10 draws.
   const penSeen = useRef(false);
+  const [penDetected, setPenDetected] = useState(false);
   const [fingerDraw, setFingerDraw] = useState(false);
+
+  // We do our own finger-scrolling, because touch-action must stay "none".
+  const pan = useRef<{ id: number; y: number; top: number } | null>(null);
 
   const [tool, setTool] = useState<Tool>("pen");
   const [penColor, setPenColor] = useState(PEN_COLORS[0]);
@@ -50,20 +57,21 @@ export default function InkCanvas({
     Math.max(initialHeight ?? PAGE_START_H, PAGE_START_H)
   );
   const [scale, setScale] = useState(1);
+  const [full, setFull] = useState(false);
   const [, force] = useState(0);
 
   /* ---------------- sizing ---------------- */
 
   useEffect(() => {
     const fit = () => {
-      const w = wrapRef.current?.clientWidth ?? PAGE_W;
-      setScale(Math.min(1, w / PAGE_W));
+      const w = (wrapRef.current?.clientWidth ?? PAGE_W) - 16;
+      setScale(Math.min(full ? 1.6 : 1, Math.max(0.4, w / PAGE_W)));
     };
     fit();
     const ro = new ResizeObserver(fit);
     if (wrapRef.current) ro.observe(wrapRef.current);
     return () => ro.disconnect();
-  }, []);
+  }, [full]);
 
   const setupCanvas = useCallback(
     (c: HTMLCanvasElement | null) => {
@@ -133,8 +141,25 @@ export default function InkCanvas({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType === "pen") penSeen.current = true;
-    if (!shouldDraw(e)) return;
+    if (e.pointerType === "pen" && !penSeen.current) {
+      penSeen.current = true;
+      setPenDetected(true);
+    }
+
+    // Finger on a pen-enabled page: scroll the sheet ourselves. We can't leave
+    // this to touch-action, because any value other than "none" lets the browser
+    // hijack a vertical PEN stroke as a scroll — which is exactly the bug where
+    // drawing a downstroke scrolled the page instead of inking.
+    if (!shouldDraw(e)) {
+      if (e.pointerType === "touch") {
+        const sc = scrollRef.current;
+        if (sc) {
+          pan.current = { id: e.pointerId, y: e.clientY, top: sc.scrollTop };
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        }
+      }
+      return;
+    }
 
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -161,6 +186,12 @@ export default function InkCanvas({
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    // finger pan
+    if (pan.current && e.pointerId === pan.current.id) {
+      const sc = scrollRef.current;
+      if (sc) sc.scrollTop = pan.current.top - (e.clientY - pan.current.y);
+      return;
+    }
     if (!drawing.current) return;
     e.preventDefault();
 
@@ -194,6 +225,7 @@ export default function InkCanvas({
   };
 
   const commit = () => {
+    if (pan.current) pan.current = null;
     if (!drawing.current) return;
     drawing.current = false;
 
@@ -253,8 +285,37 @@ export default function InkCanvas({
     force((n) => n + 1);
   };
 
+  const toggleFull = async () => {
+    const next = !full;
+    setFull(next);
+    try {
+      if (next) {
+        await rootRef.current?.requestFullscreen?.();
+      } else if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Fullscreen can be refused (or unsupported) — the overlay still works,
+      // so we just carry on without the browser chrome hidden.
+    }
+  };
+
+  // Leaving fullscreen via the system gesture / Esc must un-expand us too.
+  useEffect(() => {
+    const onFs = () => {
+      if (!document.fullscreenElement && full) setFull(false);
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, [full]);
+
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && full) {
+        setFull(false);
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
@@ -285,7 +346,13 @@ export default function InkCanvas({
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      ref={rootRef}
+      className={clsx(
+        "flex flex-col bg-bg",
+        full ? "fixed inset-0 z-[80] h-[100dvh]" : "min-h-0 flex-1"
+      )}
+    >
       {/* toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-2 py-2">
         <div className="flex items-center gap-0.5 rounded-xl bg-surface2 p-0.5">
@@ -381,6 +448,14 @@ export default function InkCanvas({
           </button>
 
           <button
+            onClick={toggleFull}
+            title={full ? "Exit full screen (Esc)" : "Full screen"}
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-txt3 transition hover:bg-surface2"
+          >
+            {full ? <Minimize2 className="h-[18px] w-[18px]" /> : <Maximize2 className="h-[18px] w-[18px]" />}
+          </button>
+
+          <button
             onClick={() => onTranscribe(strokes.current, height)}
             disabled={strokes.current.length === 0 || transcribing}
             className="ml-1 flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2.5 text-xs font-medium text-white transition active:opacity-80 disabled:opacity-40"
@@ -398,7 +473,13 @@ export default function InkCanvas({
       </div>
 
       {/* page */}
-      <div ref={wrapRef} className="min-h-0 flex-1 overflow-y-auto bg-surface2/40 p-2">
+      <div
+        ref={(el) => {
+          wrapRef.current = el;
+          scrollRef.current = el;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-surface2/40 p-2"
+      >
         <div
           className="relative mx-auto shadow-sm"
           style={{ width: PAGE_W * scale, height: height * scale }}
@@ -418,7 +499,8 @@ export default function InkCanvas({
             ref={liveRef}
             className="absolute inset-0"
             style={{
-              touchAction: penSeen.current && !fingerDraw ? "pan-y" : fingerDraw ? "none" : "pan-y",
+              // Never "pan-*": the browser would claim vertical pen strokes as scrolls.
+              touchAction: "none",
               cursor: tool === "eraser" ? "cell" : "crosshair",
             }}
             onPointerDown={onPointerDown}
@@ -429,9 +511,11 @@ export default function InkCanvas({
           />
         </div>
         <p className="py-3 text-center text-[11px] text-txt3">
-          {penSeen.current
-            ? "S Pen detected — your palm won’t draw. Scroll with a finger."
-            : "Write with the S Pen. Turn on the hand icon to draw with a finger."}
+          {penDetected && !fingerDraw
+            ? "S Pen detected — your palm won’t draw. Drag with a finger to scroll."
+            : fingerDraw
+              ? "Finger draws. Tap the hand icon to go back to scrolling."
+              : "Write with the S Pen, or tap the hand icon to draw with a finger."}
         </p>
       </div>
     </div>
