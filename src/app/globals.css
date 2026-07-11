@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme="dark"] {
+  --bg: 14 14 18;
+  --surface: 22 22 28;
+  --surface-2: 30 30 38;
+  --surface-3: 39 39 51;
+  --border: 42 42 53;
+  --accent: 124 108 240;
+  --accent-soft: 154 140 245;
+  --txt: 237 237 242;
+  --txt-2: 162 162 174;
+  --txt-3: 110 110 122;
+  --success: 79 209 165;
+  --danger: 240 108 124;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg: 249 249 251;
+  --surface: 255 255 255;
+  --surface-2: 244 244 247;
+  --surface-3: 234 234 240;
+  --border: 224 224 230;
+  --accent: 108 92 231;
+  --accent-soft: 124 108 240;
+  --txt: 24 24 30;
+  --txt-2: 82 82 95;
+  --txt-3: 138 138 150;
+  --success: 34 168 130;
+  --danger: 220 68 86;
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  /* The app is a fixed shell: nothing at the document level may scroll, or the
+     mobile bottom nav gets pushed below the fold. All scrolling happens inside panes. */
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* keep content clear of Android's edge-swipe / side-panel gesture zones */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+body {
+  @apply bg-bg text-txt;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--surface-3));
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prose-cadence h1 { @apply mb-2 mt-4 text-2xl font-semibold text-txt; }
+.prose-cadence h2 { @apply mb-2 mt-4 text-xl font-semibold text-txt; }
+.prose-cadence h3 { @apply mb-1 mt-3 text-lg font-semibold text-txt; }
+.prose-cadence p { @apply mb-3 text-txt2; }
+.prose-cadence ul { @apply mb-3 list-disc pl-5 text-txt2; }
+.prose-cadence ol { @apply mb-3 list-decimal pl-5 text-txt2; }
+.prose-cadence li { @apply mb-1; }
+.prose-cadence a { @apply text-accentSoft underline; }
+.prose-cadence code { @apply rounded bg-surface px-1 py-0.5 font-mono text-xs text-txt; }
+.prose-cadence pre { @apply mb-3 overflow-x-auto rounded-lg bg-surface p-3; }
+.prose-cadence blockquote { @apply mb-3 border-l-2 border-border pl-3 italic text-txt3; }
+.prose-cadence table { @apply mb-3 w-full border-collapse text-left; }
+.prose-cadence th, .prose-cadence td { @apply border border-border px-2 py-1; }
+.prose-cadence hr { @apply my-4 border-border; }
+.prose-cadence strong { @apply font-semibold text-txt; }

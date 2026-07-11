@@ -1,0 +1,14 @@
+{
+  "name": "Cadence",
+  "short_name": "Cadence",
+  "description": "A calm daily planner: calendar, tasks, and notes in one place.",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#0E0E12",
+  "theme_color": "#0E0E12",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
