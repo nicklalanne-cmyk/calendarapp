@@ -198,3 +198,111 @@ export const TEMPLATES: Template[] = [
     ],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Changing a property's type must not silently destroy data.
+// ---------------------------------------------------------------------------
+
+const TRUTHY = new Set(["true", "yes", "y", "1", "done", "x", "✓"]);
+
+/**
+ * Convert one value from `from` type to `to` type.
+ * Returns `undefined` when the value can't be represented (caller drops it).
+ */
+export function coerceValue(
+  v: unknown,
+  from: PropType,
+  to: PropType,
+  target: PageProperty
+): unknown {
+  if (v === null || v === undefined || v === "") return null;
+
+  // resolve a select id to its human label first — otherwise we'd migrate a uuid
+  let raw = v;
+  if (from === "select") {
+    const c = (target.options.choices ?? []).find((x) => x.id === v);
+    raw = c ? c.label : v;
+  }
+  if (from === "checkbox") raw = v ? "Yes" : "No";
+
+  const str = String(raw).trim();
+
+  switch (to) {
+    case "number":
+    case "currency": {
+      const cleaned = str.replace(/[^0-9.-]/g, "");
+      // Number("") is 0 — without this guard, "abc" would silently become $0.
+      if (cleaned === "" || cleaned === "-" || cleaned === ".") return null;
+      const n = Number(cleaned);
+      return isNaN(n) ? null : n;
+    }
+    case "checkbox":
+      return TRUTHY.has(str.toLowerCase()) || (!isNaN(Number(str)) && Number(str) > 0);
+    case "date": {
+      const d = new Date(str);
+      if (isNaN(d.getTime())) return null;
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate()
+      ).padStart(2, "0")}`;
+    }
+    case "select": {
+      // match an existing option by label (case-insensitive); the caller creates
+      // any missing ones so no value is lost
+      const c = (target.options.choices ?? []).find(
+        (x) => x.label.toLowerCase() === str.toLowerCase()
+      );
+      return c ? c.id : null;
+    }
+    default:
+      return str;
+  }
+}
+
+/**
+ * Retype a property across every record. When converting TO a select, any
+ * distinct value that has no matching option gets one created for it.
+ */
+export function retypeProperty(
+  prop: PageProperty,
+  to: PropType,
+  records: PageRecord[]
+): { property: PageProperty; changed: { id: string; props: Record<string, unknown> }[] } {
+  const next: PageProperty = { ...prop, type: to, options: { ...prop.options } };
+
+  if (to === "select") {
+    const choices: Choice[] = [...(prop.options.choices ?? [])];
+    const seen = new Set(choices.map((c) => c.label.toLowerCase()));
+
+    for (const r of records) {
+      const v = r.props[prop.id];
+      if (v === null || v === undefined || v === "") continue;
+      let label = String(v).trim();
+      if (prop.type === "checkbox") label = v ? "Yes" : "No";
+      if (prop.type === "select") continue; // already a select
+      if (!label || seen.has(label.toLowerCase())) continue;
+      if (choices.length >= 40) break; // don't explode on a free-text column
+      seen.add(label.toLowerCase());
+      choices.push({
+        id: uid(),
+        label,
+        color: CHOICE_COLORS[choices.length % CHOICE_COLORS.length],
+      });
+    }
+    next.options = { ...next.options, choices };
+  }
+
+  const empty = (x: unknown) => x === null || x === undefined || x === "";
+
+  const changed: { id: string; props: Record<string, unknown> }[] = [];
+  for (const r of records) {
+    const before = r.props[prop.id];
+    const after = coerceValue(before, prop.type, to, next);
+    const norm = after === undefined ? null : after;
+    if (empty(before) && empty(norm)) continue; // nothing to write
+    if (norm !== before) {
+      changed.push({ id: r.id, props: { ...r.props, [prop.id]: norm } });
+    }
+  }
+
+  return { property: next, changed };
+}

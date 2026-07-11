@@ -11,12 +11,13 @@ import { createClient } from "@/lib/supabase/client";
 import { makeDebouncer } from "@/lib/debounce";
 import { toast } from "@/lib/toast";
 import {
-  CHOICE_COLORS, uid,
-  type Page, type PageProperty, type PageRecord, type PageView as View,
+  CHOICE_COLORS, uid, retypeProperty,
+  type Page, type PageProperty, type PageRecord, type PageView as View, type PropType,
 } from "@/lib/pages";
 import { TableView, BoardView, ListView, CalendarView, type ViewProps } from "@/components/pages/PageViews";
 import RecordSheet from "@/components/pages/RecordSheet";
 import ValueChip from "@/components/pages/ValueChip";
+import IconPicker from "@/components/pages/IconPicker";
 
 const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "table", label: "Table", icon: Table2 },
@@ -36,6 +37,11 @@ export default function PageView({ pageId }: { pageId: string }) {
   const [open, setOpen] = useState<PageRecord | null>(null);
   const [query, setQuery] = useState("");
 
+  // One DB round-trip per keystroke was hammering Supabase. Update the UI
+  // immediately, then coalesce the writes.
+  const debouncer = useRef(makeDebouncer(500)).current;
+  useEffect(() => () => debouncer.flushAll(), [debouncer]);
+
   const load = useCallback(async () => {
     const [{ data: p }, { data: pr }, { data: rc }] = await Promise.all([
       supabase.from("pages").select("*").eq("id", pageId).is("deleted_at", null).maybeSingle(),
@@ -52,17 +58,47 @@ export default function PageView({ pageId }: { pageId: string }) {
     load();
   }, [load]);
 
+  // Realtime. Guard: if a debounced write for a row is still queued, this tab is
+  // mid-edit — ignore the echo so we don't overwrite what's being typed.
+  useEffect(() => {
+    const ch = supabase
+      .channel(`page:${pageId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "page_records", filter: `page_id=eq.${pageId}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as PageRecord & { deleted_at?: string | null };
+          if (!row?.id) return;
+          if (debouncer.pending(`rec:${row.id}`)) return;
+
+          setRecords((cur) => {
+            const gone =
+              payload.eventType === "DELETE" || (payload.new as { deleted_at?: string })?.deleted_at;
+            if (gone) return cur.filter((r) => r.id !== row.id);
+            const exists = cur.some((r) => r.id === row.id);
+            if (!exists) return [...cur, row as PageRecord];
+            return cur.map((r) => (r.id === row.id ? (row as PageRecord) : r));
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "page_properties", filter: `page_id=eq.${pageId}` },
+        () => load()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [supabase, pageId, load, debouncer]);
+
   // keep the open sheet in sync with edits made inside it
   useEffect(() => {
     if (!open) return;
     const fresh = records.find((r) => r.id === open.id);
     if (fresh && fresh !== open) setOpen(fresh);
   }, [records, open]);
-
-  // One DB round-trip per keystroke was hammering Supabase. Update the UI
-  // immediately, then coalesce the writes.
-  const debouncer = useRef(makeDebouncer(500)).current;
-  useEffect(() => () => debouncer.flushAll(), [debouncer]);
 
   const savePage = (patch: Partial<Page>, immediate = false) => {
     if (!page) return;
@@ -90,6 +126,46 @@ export default function PageView({ pageId }: { pageId: string }) {
   };
 
   const saveProperty = async (id: string, patch: Partial<PageProperty>) => {
+    const prop = props.find((p) => p.id === id);
+
+    // Changing type must migrate the existing values, not orphan them.
+    if (prop && patch.type && patch.type !== prop.type) {
+      const { property, changed } = retypeProperty(prop, patch.type as PropType, records);
+
+      setProps((cur) => cur.map((p) => (p.id === id ? property : p)));
+      if (changed.length) {
+        const map = new Map(changed.map((c) => [c.id, c.props]));
+        setRecords((cur) =>
+          cur.map((r) => (map.has(r.id) ? { ...r, props: map.get(r.id)! } : r))
+        );
+      }
+
+      const { error } = await supabase
+        .from("page_properties")
+        .update({ type: property.type, options: property.options })
+        .eq("id", id);
+      if (error) {
+        toast(error.message, "error");
+        return load();
+      }
+
+      await Promise.all(
+        changed.map((c) =>
+          supabase
+            .from("page_records")
+            .update({ props: c.props, updated_at: new Date().toISOString() })
+            .eq("id", c.id)
+        )
+      );
+
+      if (changed.length) {
+        toast(
+          `Converted ${changed.length} value${changed.length > 1 ? "s" : ""} to ${property.type}`
+        );
+      }
+      return;
+    }
+
     setProps((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)));
     const { error } = await supabase.from("page_properties").update(patch).eq("id", id);
     if (error) toast(error.message, "error");
@@ -246,6 +322,7 @@ export default function PageView({ pageId }: { pageId: string }) {
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
+          <IconPicker value={page.icon} onChange={(icon) => savePage({ icon }, true)} />
           <input
             value={page.title}
             onChange={(e) => savePage({ title: e.target.value })}

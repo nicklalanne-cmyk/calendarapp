@@ -17,11 +17,14 @@ export function makeDebouncer(ms = 500) {
     );
   };
 
+  /** Is a write for this key still queued? Realtime must not overwrite it. */
+  const pending = (key: string) => timers.has(key);
+
   /** Fire anything still pending right now (e.g. on unmount / navigate away). */
   const flushAll = () => {
     for (const [, t] of timers) clearTimeout(t);
     timers.clear();
   };
 
-  return { run, flushAll };
+  return { run, pending, flushAll };
 }
