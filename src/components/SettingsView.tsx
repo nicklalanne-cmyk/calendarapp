@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine } from "lucide-react";
+import { CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2 } from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
 
@@ -15,7 +15,8 @@ const PAGES = [
   { href: "/app", label: "Planner", icon: CalendarDays, hint: "Calendar + tasks side by side" },
   { href: "/app/agenda", label: "Agenda", icon: CalendarRange, hint: "A scrolling list of what's next" },
   { href: "/app/notes", label: "Notes", icon: StickyNote, hint: "Your notebook" },
-  { href: "/app/accounts", label: "Calendars", icon: Link2, hint: "Connected Google accounts" },
+  { href: "/app/pages", label: "Pages", icon: Table2, hint: "Your CRM and project tables" },
+  { href: "/app/focus", label: "Focus", icon: Timer, hint: "Pomodoro timer" },
 ];
 
 export default function SettingsView() {

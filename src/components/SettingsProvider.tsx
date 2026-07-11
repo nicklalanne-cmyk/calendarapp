@@ -10,6 +10,11 @@ const DEFAULTS: Omit<UserSettings, "user_id"> = {
   home_page: "/app",
   agenda_view: "week",
   handwriting_enabled: true,
+  pomo_work: 25,
+  pomo_short: 5,
+  pomo_long: 15,
+  pomo_rounds: 4,
+  pomo_autostart: false,
 };
 
 const LS_KEY = "cadence-settings";
@@ -52,6 +57,11 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
           home_page: data.home_page,
           agenda_view: data.agenda_view,
           handwriting_enabled: data.handwriting_enabled ?? true,
+          pomo_work: data.pomo_work ?? 25,
+          pomo_short: data.pomo_short ?? 5,
+          pomo_long: data.pomo_long ?? 15,
+          pomo_rounds: data.pomo_rounds ?? 4,
+          pomo_autostart: data.pomo_autostart ?? false,
         } as Omit<UserSettings, "user_id">;
         setSettings(s);
         try {

@@ -89,4 +89,9 @@ export type UserSettings = {
   home_page: string;
   agenda_view: "day" | "week" | "month";
   handwriting_enabled: boolean;
+  pomo_work: number;
+  pomo_short: number;
+  pomo_long: number;
+  pomo_rounds: number;
+  pomo_autostart: boolean;
 };

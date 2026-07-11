@@ -16,6 +16,7 @@ import {
   Sparkles,
   MoreHorizontal,
   Table2,
+  Timer,
   X,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
@@ -76,6 +77,7 @@ export default function AppShell({
     { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
     { href: "/app/notes", label: "Notes", icon: StickyNote },
     { href: "/app/pages", label: "Pages", icon: Table2 },
+    { href: "/app/focus", label: "Focus", icon: Timer },
     { href: "/app/accounts", label: "Calendars", icon: Link2 },
   ];
   const mobileNav = nav.slice(0, 4);
@@ -246,6 +248,14 @@ export default function AppShell({
               </button>
             </div>
             <div className="space-y-1">
+              <SheetRow
+                icon={<Timer className="h-[18px] w-[18px]" />}
+                label="Focus timer"
+                onClick={() => {
+                  setSheet(false);
+                  router.push("/app/focus");
+                }}
+              />
               <SheetRow
                 icon={<Link2 className="h-[18px] w-[18px]" />}
                 label="Calendars"
