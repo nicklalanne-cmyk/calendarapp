@@ -1,34 +1,12 @@
-# dependencies
 /node_modules
-
-# build output
 /.next
 /out
 /build
+.DS_Store
+*.pem
+npm-debug.log*
+.env
+.env*.local
+.vercel
 *.tsbuildinfo
 next-env.d.ts
-
-# ---------------------------------------------------------------
-# SECRETS — never commit these.
-# The ONLY env file that is committed is .env.production, and it may
-# contain NEXT_PUBLIC_* values ONLY (those are compiled into the browser
-# bundle and are public by design). Every real secret — ANTHROPIC_API_KEY,
-# SUPABASE_SERVICE_ROLE_KEY, VAPID_PRIVATE_KEY, CRON_SECRET, Google client
-# secret — lives in Vercel > Settings > Environment Variables. Nowhere else.
-# ---------------------------------------------------------------
-.env
-.env.local
-.env.*.local
-.env.development
-.env.test
-*.pem
-*.key
-
-# vercel / editor / os
-.vercel
-.idea
-.vscode
-.DS_Store
-Thumbs.db
-npm-debug.log*
-yarn-error.log*

@@ -15,6 +15,7 @@ import {
   Settings,
   Sparkles,
   MoreHorizontal,
+  Table2,
   X,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
@@ -69,12 +70,15 @@ export default function AppShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // desktop rail shows everything; the phone's bottom bar shows the first four
   const nav = [
     { href: "/app", label: "Planner", icon: CalendarDays },
     { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
     { href: "/app/notes", label: "Notes", icon: StickyNote },
+    { href: "/app/pages", label: "Pages", icon: Table2 },
     { href: "/app/accounts", label: "Calendars", icon: Link2 },
   ];
+  const mobileNav = nav.slice(0, 4);
 
   // FAB actions broadcast to whatever page is mounted; pages listen and open their own modal.
   const fire = (name: string) => window.dispatchEvent(new CustomEvent(name));
@@ -209,8 +213,8 @@ export default function AppShell({
           className="flex shrink-0 items-center justify-around border-t border-border bg-bg px-1 pt-1.5 md:hidden"
           style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
         >
-          {nav.slice(0, 2).map((n) => (
-            <NavTab key={n.href} {...n} active={pathname === n.href} />
+          {mobileNav.slice(0, 2).map((n) => (
+            <NavTab key={n.href} {...n} active={pathname.startsWith(n.href) && (n.href !== "/app" || pathname === "/app")} />
           ))}
 
           <QuickFab
@@ -220,8 +224,8 @@ export default function AppShell({
             onVoiceMemo={voiceMemo}
           />
 
-          {nav.slice(2).map((n) => (
-            <NavTab key={n.href} {...n} active={pathname === n.href} />
+          {mobileNav.slice(2).map((n) => (
+            <NavTab key={n.href} {...n} active={pathname.startsWith(n.href)} />
           ))}
         </nav>
       </div>
@@ -241,6 +245,14 @@ export default function AppShell({
               </button>
             </div>
             <div className="space-y-1">
+              <SheetRow
+                icon={<Link2 className="h-[18px] w-[18px]" />}
+                label="Calendars"
+                onClick={() => {
+                  setSheet(false);
+                  router.push("/app/accounts");
+                }}
+              />
               <SheetRow
                 icon={<Settings className="h-[18px] w-[18px]" />}
                 label="Settings"
