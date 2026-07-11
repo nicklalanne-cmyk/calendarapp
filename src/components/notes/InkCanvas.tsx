@@ -165,11 +165,13 @@ export default function InkCanvas({
     e.preventDefault();
 
     // High-frequency samples between frames — this is what makes the S Pen
-    // feel smooth instead of polygonal.
-    const evs: (PointerEvent | React.PointerEvent)[] =
-      typeof e.nativeEvent.getCoalescedEvents === "function"
-        ? e.nativeEvent.getCoalescedEvents()
-        : [e];
+    // feel smooth instead of polygonal. Some browsers/devices hand back an
+    // EMPTY list, so always fall back to the event itself or we'd drop the point.
+    let evs: (PointerEvent | React.PointerEvent)[] = [e];
+    if (typeof e.nativeEvent.getCoalescedEvents === "function") {
+      const co = e.nativeEvent.getCoalescedEvents();
+      if (co && co.length > 0) evs = co;
+    }
 
     if (!current.current) {
       for (const ev of evs) {
