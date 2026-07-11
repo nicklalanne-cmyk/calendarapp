@@ -33,6 +33,11 @@ export type Note = {
   duration_seconds: number | null;
   ink: { v: 1; strokes: unknown[] } | null;
   ink_height: number | null;
+  event_id: string | null;
+  event_calendar_id: string | null;
+  event_account_id: string | null;
+  event_title: string | null;
+  event_start: string | null;
   updated_at: string;
 };
 

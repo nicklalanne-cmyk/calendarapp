@@ -2,9 +2,10 @@
 import clsx from "clsx";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import VoiceMemo from "@/components/notes/VoiceMemo";
 import InkCanvas from "@/components/notes/InkCanvas";
+import LinkPicker, { type NoteLink } from "@/components/notes/LinkPicker";
 import { renderToPng, type Stroke } from "@/lib/ink";
 import { useSettings } from "@/components/SettingsProvider";
 import { makeDebouncer } from "@/lib/debounce";
@@ -12,7 +13,7 @@ import AudioNote from "@/components/notes/AudioNote";
 import { format } from "date-fns";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Plus, Trash2, CalendarDays, Eye, Pencil, Link2, ArrowLeft, Mic, PenLine, Type } from "lucide-react";
+import { Plus, Trash2, CalendarDays, Eye, Pencil, Link2, ArrowLeft, Mic, PenLine, Type, Unlink, Plus as PlusIcon, CheckSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import type { Note, Task } from "@/lib/types";
@@ -26,6 +27,7 @@ export default function NotesView() {
   const [preview, setPreview] = useState(false);
   const [recording, setRecording] = useState(false);
   const [mode, setMode] = useState<"text" | "ink">("text");
+  const [linking, setLinking] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const { settings } = useSettings();
   const inkDebouncer = useRef(makeDebouncer(900)).current;
@@ -82,6 +84,7 @@ export default function NotesView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes]);
 
+  const router = useRouter();
   const params = useSearchParams();
   const wantsNew = params.get("new") === "1";
   const wantsRecord = params.get("record") === "1";
@@ -182,6 +185,66 @@ export default function NotesView() {
     }
   };
 
+  const applyLink = async (link: NoteLink) => {
+    if (!active) return;
+    const patch =
+      link.kind === "task"
+        ? {
+            task_id: link.task.id,
+            event_id: null,
+            event_calendar_id: null,
+            event_account_id: null,
+            event_title: null,
+            event_start: null,
+          }
+        : {
+            task_id: null,
+            event_id: link.id,
+            event_calendar_id: link.calendarId,
+            event_account_id: link.accountId,
+            event_title: link.title,
+            event_start: link.start,
+          };
+
+    const { error } = await supabase
+      .from("notes")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", active.id);
+    if (error) return toast(error.message, "error");
+
+    setLinking(false);
+    toast(
+      link.kind === "task"
+        ? `Linked to task “${link.task.title}”`
+        : `Linked to “${link.title}”`
+    );
+    await load();
+    const { data } = await supabase.from("notes").select("*").eq("id", active.id).single();
+    if (data) setActive(data as Note);
+  };
+
+  const unlink = async () => {
+    if (!active) return;
+    const { error } = await supabase
+      .from("notes")
+      .update({
+        task_id: null,
+        event_id: null,
+        event_calendar_id: null,
+        event_account_id: null,
+        event_title: null,
+        event_start: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", active.id);
+    if (error) return toast(error.message, "error");
+    setLinkedTask(null);
+    await load();
+    const { data } = await supabase.from("notes").select("*").eq("id", active.id).single();
+    if (data) setActive(data as Note);
+    toast("Link removed");
+  };
+
   const remove = async (n: Note) => {
     const { error } = await supabase
       .from("notes")
@@ -228,6 +291,10 @@ export default function NotesView() {
 
   return (
     <div className="flex h-full">
+      {linking && (
+        <LinkPicker onClose={() => setLinking(false)} onPick={applyLink} />
+      )}
+
       <VoiceMemo
         open={recording}
         onClose={() => setRecording(false)}
@@ -286,7 +353,11 @@ export default function NotesView() {
                 <div className="truncate text-[13px] text-txt3 md:text-xs">{n.body || "No content"}</div>
                 <div className="flex items-center gap-1.5 pt-0.5">
                   {n.note_date && <CalendarDays className="h-3 w-3 text-accentSoft" />}
-                  {n.task_id && <Link2 className="h-3 w-3 text-accentSoft" />}
+                  {n.task_id && <CheckSquare className="h-3 w-3 text-accentSoft" />}
+                  {n.event_id && <Link2 className="h-3 w-3 text-accentSoft" />}
+                  {n.ink && ((n.ink.strokes?.length ?? 0) > 0) && (
+                    <PenLine className="h-3 w-3 text-accentSoft" />
+                  )}
                 </div>
               </div>
             </button>
@@ -326,21 +397,68 @@ export default function NotesView() {
               </button>
             </div>
 
-            {(linkedTask || active.note_date) && (
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-                {active.note_date && (
-                  <span className="flex items-center gap-1 rounded-full bg-surface px-2 py-0.5 text-txt3">
-                    <CalendarDays className="h-3 w-3" /> Daily note ·{" "}
-                    {format(new Date(`${active.note_date}T00:00:00`), "MMM d, yyyy")}
-                  </span>
-                )}
-                {linkedTask && (
-                  <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-accentSoft">
-                    <Link2 className="h-3 w-3" /> Linked to task: {linkedTask.title}
-                  </span>
-                )}
-              </div>
-            )}
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+              {active.note_date && (
+                <span className="flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-txt3">
+                  <CalendarDays className="h-3 w-3" /> Daily note ·{" "}
+                  {format(new Date(`${active.note_date}T00:00:00`), "MMM d, yyyy")}
+                </span>
+              )}
+
+              {linkedTask ? (
+                <span className="group/link flex items-center gap-1.5 rounded-full bg-accent/15 py-1 pl-2.5 pr-1.5 text-accentSoft">
+                  <CheckSquare className="h-3 w-3 shrink-0" />
+                  <button
+                    onClick={() => router.push("/app")}
+                    className="max-w-[220px] truncate hover:underline"
+                    title="Open in Planner"
+                  >
+                    {linkedTask.title}
+                  </button>
+                  <button
+                    onClick={unlink}
+                    title="Remove link"
+                    className="rounded-full p-1 text-accentSoft/70 hover:bg-accent/20 hover:text-danger"
+                  >
+                    <Unlink className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : active.event_id ? (
+                <span className="group/link flex items-center gap-1.5 rounded-full bg-accent/15 py-1 pl-2.5 pr-1.5 text-accentSoft">
+                  <CalendarDays className="h-3 w-3 shrink-0" />
+                  <button
+                    onClick={() => router.push("/app/agenda")}
+                    className="max-w-[240px] truncate hover:underline"
+                    title="Open in Agenda"
+                  >
+                    {active.event_title || "Event"}
+                    {active.event_start && (
+                      <span className="ml-1 opacity-70">
+                        ·{" "}
+                        {new Date(active.event_start).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={unlink}
+                    title="Remove link"
+                    className="rounded-full p-1 text-accentSoft/70 hover:bg-accent/20 hover:text-danger"
+                  >
+                    <Unlink className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => setLinking(true)}
+                  className="flex items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-txt3 transition hover:border-accent hover:text-accent"
+                >
+                  <Link2 className="h-3 w-3" /> Link to a task or event
+                </button>
+              )}
+            </div>
 
             {active.audio_path && (
               <AudioNote
