@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Trash2, Repeat } from "lucide-react";
+import { X, Trash2, Repeat, CalendarDays, Unlink } from "lucide-react";
+import LinkPicker from "@/components/notes/LinkPicker";
 import clsx from "clsx";
 import type { Task } from "@/lib/types";
 import { describeRRule, presetsFor, parseRRule, formatRRule, DAY_CODES } from "@/lib/recurrence";
@@ -13,6 +14,14 @@ const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
 export type EditScope = "occurrence" | "series";
 
+export type LinkedEvent = {
+  id: string;
+  calendarId: string;
+  accountId: string;
+  title: string;
+  start: string;
+} | null;
+
 export type TaskDraft = {
   title: string;
   due_date: string | null;
@@ -23,6 +32,8 @@ export type TaskDraft = {
   tags: string[] | null;
   estimate_minutes: number | null;
   notes: string | null;
+  /** A meeting this task is about. */
+  linked_event: LinkedEvent;
   /** For repeating tasks: change just this one, or the whole series. */
   scope?: EditScope;
 };
@@ -62,6 +73,18 @@ export default function TaskModal({
   const [notes, setNotes] = useState(task?.notes ?? "");
   const repeats = Boolean(task?.rrule || task?.repeat);
   const [scope, setScope] = useState<EditScope>("series");
+  const [linkedEvent, setLinkedEvent] = useState<LinkedEvent>(
+    task?.linked_event_id
+      ? {
+          id: task.linked_event_id,
+          calendarId: task.linked_event_calendar_id ?? "",
+          accountId: task.linked_event_account_id ?? "",
+          title: task.linked_event_title ?? "Event",
+          start: task.linked_event_start ?? "",
+        }
+      : null
+  );
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -103,11 +126,32 @@ export default function TaskModal({
       tags: tags.trim() ? tags.split(",").map((t) => t.trim()).filter(Boolean) : null,
       estimate_minutes: estimate ? parseInt(estimate, 10) || null : null,
       notes: notes.trim() || null,
+      linked_event: linkedEvent,
       scope: mode === "edit" && repeats ? scope : undefined,
     });
   };
 
   return (
+    <>
+    {picking && (
+      <LinkPicker
+        only="event"
+        title="Link this task to a meeting…"
+        onClose={() => setPicking(false)}
+        onPick={(l) => {
+          if (l.kind === "event") {
+            setLinkedEvent({
+              id: l.id,
+              calendarId: l.calendarId,
+              accountId: l.accountId,
+              title: l.title,
+              start: l.start,
+            });
+          }
+          setPicking(false);
+        }}
+      />
+    )}
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[6vh]"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
@@ -389,6 +433,41 @@ export default function TaskModal({
           </div>
 
           <div>
+            <label className={label}>Related meeting</label>
+            {linkedEvent ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-bg px-2.5 py-2">
+                <CalendarDays className="h-4 w-4 shrink-0 text-accent" />
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {linkedEvent.title}
+                  {linkedEvent.start && (
+                    <span className="ml-1 text-xs text-txt3">
+                      ·{" "}
+                      {new Date(linkedEvent.start).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  )}
+                </span>
+                <button
+                  onClick={() => setLinkedEvent(null)}
+                  title="Unlink"
+                  className="shrink-0 rounded p-1 text-txt3 hover:text-danger"
+                >
+                  <Unlink className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setPicking(true)}
+                className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2.5 py-2 text-sm text-txt3 transition hover:border-accent hover:text-accent"
+              >
+                <CalendarDays className="h-4 w-4" /> Link a calendar event
+              </button>
+            )}
+          </div>
+
+          <div>
             <label className={label}>Notes</label>
             <textarea
               value={notes}
@@ -463,6 +542,7 @@ export default function TaskModal({
         </div>
       </div>
     </div>
+    </>
   );
 }
 

@@ -16,7 +16,7 @@ import MonthView from "@/components/calendar/MonthView";
 import CalendarsPanel from "@/components/calendar/CalendarsPanel";
 import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskList from "@/components/tasks/TaskList";
-import TaskModal, { type TaskDraft } from "@/components/tasks/TaskModal";
+import TaskModal, { type TaskDraft, type LinkedEvent } from "@/components/tasks/TaskModal";
 import ScheduleSheet from "@/components/tasks/ScheduleSheet";
 
 type View = "day" | "week" | "month";
@@ -38,6 +38,14 @@ export default function Planner() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [tasksOpen, setTasksOpen] = useState(false);
+
+  const eventCols = (e: LinkedEvent) => ({
+    linked_event_id: e?.id ?? null,
+    linked_event_calendar_id: e?.calendarId ?? null,
+    linked_event_account_id: e?.accountId || null,
+    linked_event_title: e?.title ?? null,
+    linked_event_start: e?.start || null,
+  });
 
   const loadTasks = useCallback(async () => {
     const { data, error } = await supabase
@@ -128,6 +136,34 @@ export default function Planner() {
     [events, hidden]
   );
 
+  // Time-blocked tasks are Cadence-native; render them on the grid alongside
+  // Google events instead of writing them to Google.
+  const taskBlocks = useMemo<CalendarEvent[]>(
+    () =>
+      tasks
+        .filter((t) => t.scheduled_start && t.scheduled_end && !t.parent_id)
+        .map((t) => ({
+          id: `task:${t.id}`,
+          title: t.title,
+          start: t.scheduled_start!,
+          end: t.scheduled_end!,
+          allDay: false,
+          color: "#7C6CF0",
+          accountId: "",
+          accountEmail: "",
+          calendarId: "__tasks__",
+          source: "task" as const,
+          taskId: t.id,
+          taskDone: t.is_done,
+        })),
+    [tasks]
+  );
+
+  const gridEvents = useMemo(
+    () => [...visibleEvents, ...taskBlocks],
+    [visibleEvents, taskBlocks]
+  );
+
   /* ---------- tasks ---------- */
   const addTask = async (p: ParsedTask) => {
     const { error } = await supabase.from("tasks").insert({
@@ -155,6 +191,7 @@ export default function Planner() {
       tags: d.tags,
       estimate_minutes: d.estimate_minutes,
       notes: d.notes,
+      ...eventCols(d.linked_event),
     });
     if (error) return toast(error.message, "error");
     setCreating(false);
@@ -195,73 +232,26 @@ export default function Planner() {
   };
 
   const deleteTask = async (t: Task) => {
-    // Soft delete: the row sticks around so Undo is real, not a re-create with a new id.
+    // Tasks are Cadence-native: nothing to remove from Google.
     const { error } = await supabase
       .from("tasks")
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", t.id);
     if (error) return toast(error.message, "error");
 
-    // If we'd time-blocked it, pull the calendar event too — but remember enough to rebuild it.
-    const block =
-      t.google_event_id && t.google_account_id
-        ? {
-            id: t.google_event_id,
-            accountId: t.google_account_id,
-            calendarId: t.google_calendar_id ?? "primary",
-            start: t.scheduled_start,
-            end: t.scheduled_end,
-            title: t.title,
-          }
-        : null;
-
-    if (block) {
-      const q = new URLSearchParams({
-        accountId: block.accountId,
-        calendarId: block.calendarId,
-      });
-      await fetch(`/api/google/events/${encodeURIComponent(block.id)}?${q}`, {
-        method: "DELETE",
-      });
-    }
-
     loadTasks();
-    loadEvents();
 
     toast(`Deleted “${t.title}”`, {
       action: {
         label: "Undo",
         run: async () => {
-          const { error: unErr } = await supabase
+          const { error: e } = await supabase
             .from("tasks")
             .update({ deleted_at: null })
             .eq("id", t.id);
-          if (unErr) return toast(unErr.message, "error");
-
-          // put the time-block back if there was one
-          if (block?.start && block?.end) {
-            const res = await fetch("/api/google/events", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                title: block.title,
-                start: block.start,
-                end: block.end,
-                accountId: block.accountId,
-                calendarId: block.calendarId,
-              }),
-            });
-            const j = await res.json().catch(() => ({}));
-            if (j?.event?.id) {
-              await supabase
-                .from("tasks")
-                .update({ google_event_id: j.event.id })
-                .eq("id", t.id);
-            }
-          }
+          if (e) return toast(e.message, "error");
           toast("Restored");
           loadTasks();
-          loadEvents();
         },
       },
     });
@@ -277,7 +267,8 @@ export default function Planner() {
   };
 
   const updateTask = async (t: Task, draft: TaskDraft) => {
-    const { scope, ...patch } = draft;
+    const { scope, linked_event, ...rest } = draft;
+    const patch = { ...rest, ...eventCols(linked_event) };
 
     if (scope === "occurrence" && (t.rrule || t.repeat)) {
       // Keep the series alive: spin the NEXT occurrence off as its own repeating task,
@@ -312,30 +303,15 @@ export default function Planner() {
   };
 
   const scheduleTask = async (t: Task, start: Date, end: Date) => {
-    const res = await fetch("/api/google/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: t.title,
-        start: start.toISOString(),
-        end: end.toISOString(),
-      }),
-    });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j?.event) {
-      return toast(j?.error ?? "Couldn't add it to the calendar", "error");
-    }
+    // A time-block lives in Cadence. We no longer push it to Google Calendar.
     const { error } = await supabase
       .from("tasks")
       .update({
         scheduled_start: start.toISOString(),
         scheduled_end: end.toISOString(),
-        google_event_id: j.event.id,
-        google_account_id: j.event.accountId,
-        google_calendar_id: j.event.calendarId,
       })
       .eq("id", t.id);
-    if (error) toast(error.message, "error");
+    if (error) return toast(error.message, "error");
 
     setScheduling(null);
     toast(
@@ -346,7 +322,57 @@ export default function Planner() {
       })}`
     );
     loadTasks();
-    loadEvents();
+  };
+
+  const unscheduleTask = async (t: Task) => {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ scheduled_start: null, scheduled_end: null })
+      .eq("id", t.id);
+    if (error) return toast(error.message, "error");
+    loadTasks();
+  };
+
+  const moveScheduledTask = async (t: Task, start: Date, end: Date) => {
+    setTasks((cur) =>
+      cur.map((x) =>
+        x.id === t.id
+          ? { ...x, scheduled_start: start.toISOString(), scheduled_end: end.toISOString() }
+          : x
+      )
+    );
+    const { error } = await supabase
+      .from("tasks")
+      .update({ scheduled_start: start.toISOString(), scheduled_end: end.toISOString() })
+      .eq("id", t.id);
+    if (error) toast(error.message, "error");
+  };
+
+  const onGridClick = (ev: CalendarEvent) => {
+    if (ev.source === "task") {
+      const t = tasks.find((x) => x.id === ev.taskId);
+      if (t) setEditing(t);
+      return;
+    }
+    openEdit(ev);
+  };
+
+  const onGridMove = (ev: CalendarEvent, start: Date, end: Date) => {
+    if (ev.source === "task") {
+      const t = tasks.find((x) => x.id === ev.taskId);
+      if (t) moveScheduledTask(t, start, end);
+      return;
+    }
+    moveEvent(ev, start, end);
+  };
+
+  const onGridResize = (ev: CalendarEvent, end: Date) => {
+    if (ev.source === "task") {
+      const t = tasks.find((x) => x.id === ev.taskId);
+      if (t && t.scheduled_start) moveScheduledTask(t, new Date(t.scheduled_start), end);
+      return;
+    }
+    resizeEvent(ev, end);
   };
 
   const openNoteForTask = async (t: Task) => {
@@ -437,34 +463,19 @@ export default function Planner() {
     patchEvent(ev, { end: end.toISOString() });
 
   const dropTask = async (p: TaskDropPayload, start: Date, end: Date) => {
-    const res = await fetch(`/api/google/events`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: p.title, start: start.toISOString(), end: end.toISOString() }),
-    });
-    if (!res.ok) {
-      toast("Couldn't time-block that task", "error");
-      return;
-    }
-    const j = (await res.json()) as {
-      event?: { id: string; accountId: string; calendarId: string };
-    };
-    await supabase
+    // Drag-to-time-block. Cadence-native — no Google event is created.
+    const { error } = await supabase
       .from("tasks")
       .update({
         scheduled_start: start.toISOString(),
         scheduled_end: end.toISOString(),
-        google_event_id: j.event?.id ?? null,
-        google_account_id: j.event?.accountId ?? null,
-        google_calendar_id: j.event?.calendarId ?? null,
       })
       .eq("id", p.id);
-    toast("Task time-blocked");
-    loadEvents();
+    if (error) return toast(error.message, "error");
+    toast(`Time-blocked “${p.title}”`);
     loadTasks();
   };
 
-  /* ---------- navigation ---------- */
   const shift = useCallback(
     (dir: number) =>
       setDate((d) =>
@@ -641,7 +652,7 @@ export default function Planner() {
           {view === "month" ? (
             <MonthView
               date={date}
-              events={visibleEvents}
+              events={gridEvents}
               onPickDay={(d) => {
                 setDate(d);
                 setView("day");
@@ -652,12 +663,12 @@ export default function Planner() {
             <CalendarGrid
               view={view === "week" ? "week" : "day"}
               date={date}
-              events={visibleEvents}
+              events={gridEvents}
               onCreate={openCreate}
-              onEventClick={openEdit}
+              onEventClick={onGridClick}
               onDropTask={dropTask}
-              onMoveEvent={moveEvent}
-              onResizeEvent={resizeEvent}
+              onMoveEvent={onGridMove}
+              onResizeEvent={onGridResize}
               onPickDay={(d) => {
                 setDate(d);
                 setView("day");

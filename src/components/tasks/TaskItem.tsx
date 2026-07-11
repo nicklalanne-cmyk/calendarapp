@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Task } from "@/lib/types";
-import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus } from "lucide-react";
+import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays } from "lucide-react";
 import clsx from "clsx";
 import { format, parseISO } from "date-fns";
 
@@ -131,6 +131,15 @@ export default function TaskItem({
                 </span>
               )}
               {repeats && <Repeat className="h-3 w-3 shrink-0 text-txt3" />}
+              {task.linked_event_id && (
+                <span
+                  className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-accentSoft"
+                  title={`Meeting: ${task.linked_event_title ?? ""}`}
+                >
+                  <CalendarDays className="h-2.5 w-2.5 shrink-0" />
+                  <span className="max-w-[110px] truncate">{task.linked_event_title}</span>
+                </span>
+              )}
               {task.estimate_minutes ? (
                 <span className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-txt3">
                   <Clock className="h-2.5 w-2.5 shrink-0" />

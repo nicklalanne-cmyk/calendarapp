@@ -221,7 +221,7 @@ Rules:
   };
 
   const TASK_COLS =
-    "id,title,notes,is_done,due_date,due_kind,priority,rrule,repeat,project,tags,estimate_minutes,parent_id";
+    "id,title,notes,is_done,due_date,due_kind,priority,rrule,repeat,project,tags,estimate_minutes,parent_id,scheduled_start,scheduled_end,linked_event_id,linked_event_title";
 
   const mutated = { tasks: false, events: false };
 

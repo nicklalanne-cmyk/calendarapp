@@ -22,12 +22,17 @@ export type NoteLink =
 export default function LinkPicker({
   onClose,
   onPick,
+  only,
+  title = "Link this note to…",
 }: {
   onClose: () => void;
   onPick: (link: NoteLink) => void;
+  /** Restrict to one kind (e.g. a task can only link to an event). */
+  only?: "task" | "event";
+  title?: string;
 }) {
   const supabase = createClient();
-  const [tab, setTab] = useState<"task" | "event">("task");
+  const [tab, setTab] = useState<"task" | "event">(only ?? "task");
   const [q, setQ] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -110,7 +115,7 @@ export default function LinkPicker({
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative flex max-h-[80vh] w-full flex-col rounded-t-2xl border-t border-border bg-surface md:max-w-md md:rounded-2xl md:border">
         <div className="flex items-center gap-2 border-b border-border p-3">
-          <h2 className="text-sm font-semibold">Link this note to…</h2>
+          <h2 className="text-sm font-semibold">{title}</h2>
           <button
             onClick={onClose}
             className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-txt3 active:bg-surface2"
@@ -119,7 +124,7 @@ export default function LinkPicker({
           </button>
         </div>
 
-        <div className="flex gap-0.5 px-3 pt-3">
+        <div className={clsx("flex gap-0.5 px-3 pt-3", only && "hidden")}>
           {(
             [
               ["task", "Tasks", CheckSquare],

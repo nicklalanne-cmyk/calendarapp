@@ -27,7 +27,7 @@ export default function NotesView() {
   const [preview, setPreview] = useState(false);
   const [recording, setRecording] = useState(false);
   const [mode, setMode] = useState<"text" | "ink">("text");
-  const [linking, setLinking] = useState(false);
+  const [linking, setLinking] = useState<false | "task" | "event" | "both">(false);
   const [transcribing, setTranscribing] = useState(false);
   const { settings } = useSettings();
   const inkDebouncer = useRef(makeDebouncer(900)).current;
@@ -187,24 +187,39 @@ export default function NotesView() {
 
   const applyLink = async (link: NoteLink) => {
     if (!active) return;
-    const patch =
-      link.kind === "task"
-        ? {
-            task_id: link.task.id,
-            event_id: null,
-            event_calendar_id: null,
-            event_account_id: null,
-            event_title: null,
-            event_start: null,
-          }
-        : {
-            task_id: null,
-            event_id: link.id,
-            event_calendar_id: link.calendarId,
-            event_account_id: link.accountId,
-            event_title: link.title,
-            event_start: link.start,
-          };
+
+    let patch: Record<string, unknown>;
+    let msg: string;
+
+    if (link.kind === "task") {
+      const t = link.task;
+      patch = { task_id: t.id };
+      msg = `Linked to task “${t.title}”`;
+
+      // If the task is itself about a meeting, the note belongs to that meeting
+      // too — that's the whole point of the chain. Don't clobber an event the
+      // note is already linked to.
+      if (t.linked_event_id && !active.event_id) {
+        patch = {
+          ...patch,
+          event_id: t.linked_event_id,
+          event_calendar_id: t.linked_event_calendar_id,
+          event_account_id: t.linked_event_account_id,
+          event_title: t.linked_event_title,
+          event_start: t.linked_event_start,
+        };
+        msg = `Linked to “${t.title}” and its meeting`;
+      }
+    } else {
+      patch = {
+        event_id: link.id,
+        event_calendar_id: link.calendarId,
+        event_account_id: link.accountId,
+        event_title: link.title,
+        event_start: link.start,
+      };
+      msg = `Linked to “${link.title}”`;
+    }
 
     const { error } = await supabase
       .from("notes")
@@ -213,32 +228,30 @@ export default function NotesView() {
     if (error) return toast(error.message, "error");
 
     setLinking(false);
-    toast(
-      link.kind === "task"
-        ? `Linked to task “${link.task.title}”`
-        : `Linked to “${link.title}”`
-    );
+    toast(msg);
     await load();
     const { data } = await supabase.from("notes").select("*").eq("id", active.id).single();
     if (data) setActive(data as Note);
   };
 
-  const unlink = async () => {
+  const unlink = async (what: "task" | "event") => {
     if (!active) return;
+    const patch =
+      what === "task"
+        ? { task_id: null }
+        : {
+            event_id: null,
+            event_calendar_id: null,
+            event_account_id: null,
+            event_title: null,
+            event_start: null,
+          };
     const { error } = await supabase
       .from("notes")
-      .update({
-        task_id: null,
-        event_id: null,
-        event_calendar_id: null,
-        event_account_id: null,
-        event_title: null,
-        event_start: null,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", active.id);
     if (error) return toast(error.message, "error");
-    setLinkedTask(null);
+    if (what === "task") setLinkedTask(null);
     await load();
     const { data } = await supabase.from("notes").select("*").eq("id", active.id).single();
     if (data) setActive(data as Note);
@@ -292,7 +305,12 @@ export default function NotesView() {
   return (
     <div className="flex h-full">
       {linking && (
-        <LinkPicker onClose={() => setLinking(false)} onPick={applyLink} />
+        <LinkPicker
+          only={linking === "both" ? undefined : linking}
+          title={linking === "event" ? "Link this note to an event…" : "Link this note to a task…"}
+          onClose={() => setLinking(false)}
+          onPick={applyLink}
+        />
       )}
 
       <VoiceMemo
@@ -405,30 +423,32 @@ export default function NotesView() {
                 </span>
               )}
 
-              {linkedTask ? (
-                <span className="group/link flex items-center gap-1.5 rounded-full bg-accent/15 py-1 pl-2.5 pr-1.5 text-accentSoft">
+              {linkedTask && (
+                <span className="flex items-center gap-1.5 rounded-full bg-accent/15 py-1 pl-2.5 pr-1.5 text-accentSoft">
                   <CheckSquare className="h-3 w-3 shrink-0" />
                   <button
                     onClick={() => router.push("/app")}
-                    className="max-w-[220px] truncate hover:underline"
+                    className="max-w-[200px] truncate hover:underline"
                     title="Open in Planner"
                   >
                     {linkedTask.title}
                   </button>
                   <button
-                    onClick={unlink}
-                    title="Remove link"
+                    onClick={() => unlink("task")}
+                    title="Unlink task"
                     className="rounded-full p-1 text-accentSoft/70 hover:bg-accent/20 hover:text-danger"
                   >
                     <Unlink className="h-3 w-3" />
                   </button>
                 </span>
-              ) : active.event_id ? (
-                <span className="group/link flex items-center gap-1.5 rounded-full bg-accent/15 py-1 pl-2.5 pr-1.5 text-accentSoft">
+              )}
+
+              {active.event_id && (
+                <span className="flex items-center gap-1.5 rounded-full bg-accent/15 py-1 pl-2.5 pr-1.5 text-accentSoft">
                   <CalendarDays className="h-3 w-3 shrink-0" />
                   <button
                     onClick={() => router.push("/app/agenda")}
-                    className="max-w-[240px] truncate hover:underline"
+                    className="max-w-[220px] truncate hover:underline"
                     title="Open in Agenda"
                   >
                     {active.event_title || "Event"}
@@ -443,19 +463,29 @@ export default function NotesView() {
                     )}
                   </button>
                   <button
-                    onClick={unlink}
-                    title="Remove link"
+                    onClick={() => unlink("event")}
+                    title="Unlink event"
                     className="rounded-full p-1 text-accentSoft/70 hover:bg-accent/20 hover:text-danger"
                   >
                     <Unlink className="h-3 w-3" />
                   </button>
                 </span>
-              ) : (
+              )}
+
+              {!linkedTask && (
                 <button
-                  onClick={() => setLinking(true)}
+                  onClick={() => setLinking("task")}
                   className="flex items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-txt3 transition hover:border-accent hover:text-accent"
                 >
-                  <Link2 className="h-3 w-3" /> Link to a task or event
+                  <CheckSquare className="h-3 w-3" /> Link a task
+                </button>
+              )}
+              {!active.event_id && (
+                <button
+                  onClick={() => setLinking("event")}
+                  className="flex items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-txt3 transition hover:border-accent hover:text-accent"
+                >
+                  <CalendarDays className="h-3 w-3" /> Link an event
                 </button>
               )}
             </div>

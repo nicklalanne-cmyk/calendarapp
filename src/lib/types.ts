@@ -18,6 +18,12 @@ export type Task = {
   google_event_id: string | null;
   google_account_id: string | null;
   google_calendar_id: string | null;
+  /** A meeting this task is ABOUT (not the time-block created for it). */
+  linked_event_id: string | null;
+  linked_event_calendar_id: string | null;
+  linked_event_account_id: string | null;
+  linked_event_title: string | null;
+  linked_event_start: string | null;
   created_at: string;
 };
 
@@ -65,7 +71,10 @@ export type CalendarEvent = {
   accountId: string;
   accountEmail: string;
   calendarId: string;
-  source: "google";
+  source: "google" | "task";
+  /** set when source === "task" */
+  taskId?: string;
+  taskDone?: boolean;
 };
 
 export type ConnectedAccount = {

@@ -5,6 +5,7 @@ import type { CalendarEvent } from "@/lib/types";
 import { HOURS, weekDays, fmtTime, minutesOfDay } from "@/lib/dates";
 import { format, isSameDay } from "date-fns";
 import clsx from "clsx";
+import { CheckSquare } from "lucide-react";
 
 const HOUR_H = 48;
 const GUTTER = 56;
@@ -328,17 +329,28 @@ function DayColumn({
         const top = (s / 60) * HOUR_H;
         const height = Math.max(18, ((en - s) / 60) * HOUR_H);
         const ev = p.ev;
+        const isTask = ev.source === "task";
         return (
           <div
             key={ev.id}
-            className="absolute z-10 select-none overflow-hidden rounded-md border-l-2 text-left"
+            className={clsx(
+              "absolute z-10 select-none overflow-hidden rounded-md border-l-2 text-left",
+              isTask && "border border-dashed border-l-2",
+              isTask && ev.taskDone && "opacity-50"
+            )}
             style={{
               top,
               height,
               left: `calc(${p.left * 100}% + 2px)`,
               width: `calc(${p.width * 100}% - 4px)`,
-              backgroundColor: ev.color ? `${ev.color}33` : "rgba(124,108,240,0.25)",
+              backgroundColor: isTask
+                ? "rgba(124,108,240,0.14)"
+                : ev.color
+                  ? `${ev.color}33`
+                  : "rgba(124,108,240,0.25)",
               borderLeftColor: ev.color ?? "#7C6CF0",
+              borderColor: isTask ? "rgba(124,108,240,0.55)" : undefined,
+              borderLeftStyle: "solid",
             }}
             onMouseDown={(e) => {
               e.stopPropagation();
@@ -374,7 +386,24 @@ function DayColumn({
             }}
           >
             <div className="cursor-grab px-2 py-1">
-              <div className="truncate text-xs font-semibold text-txt">{ev.title}</div>
+              <div className="flex items-center gap-1">
+                {isTask && (
+                  <CheckSquare
+                    className={clsx(
+                      "h-3 w-3 shrink-0",
+                      ev.taskDone ? "text-success" : "text-accent"
+                    )}
+                  />
+                )}
+                <span
+                  className={clsx(
+                    "truncate text-xs font-semibold text-txt",
+                    isTask && ev.taskDone && "line-through"
+                  )}
+                >
+                  {ev.title}
+                </span>
+              </div>
               <div className="text-[10px] text-txt3">{fmtTime(new Date(ev.start))}</div>
             </div>
             <div
