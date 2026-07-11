@@ -31,6 +31,8 @@ export type Note = {
   audio_path: string | null;
   transcript: string | null;
   duration_seconds: number | null;
+  ink: { v: 1; strokes: unknown[] } | null;
+  ink_height: number | null;
   updated_at: string;
 };
 
@@ -72,4 +74,5 @@ export type UserSettings = {
   default_view: "day" | "week" | "month";
   home_page: string;
   agenda_view: "day" | "week" | "month";
+  handwriting_enabled: boolean;
 };

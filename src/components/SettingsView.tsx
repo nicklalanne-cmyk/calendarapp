@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, CalendarRange, StickyNote, Link2, Home, Check } from "lucide-react";
+import { CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine } from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
 
@@ -111,6 +111,44 @@ export default function SettingsView() {
                 </button>
               );
             })}
+          </div>
+        </section>
+
+        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+                <PenLine className="h-4 w-4" /> Handwriting
+              </h2>
+              <p className="mt-1 text-xs text-txt3">
+                Adds a pen notepad to every note — write with the S Pen and convert it to
+                text. Turn it off and notes stay plain text only.
+              </p>
+              {!settings.handwriting_enabled && (
+                <p className="mt-1 text-xs text-txt3">
+                  Existing handwriting isn’t deleted — it reappears if you switch this back on.
+                </p>
+              )}
+            </div>
+            <button
+              role="switch"
+              aria-checked={settings.handwriting_enabled}
+              onClick={() => {
+                update({ handwriting_enabled: !settings.handwriting_enabled });
+                flash();
+              }}
+              className={clsx(
+                "relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition",
+                settings.handwriting_enabled ? "bg-accent" : "bg-surface3"
+              )}
+            >
+              <span
+                className={clsx(
+                  "absolute top-1 h-5 w-5 rounded-full bg-white transition-all",
+                  settings.handwriting_enabled ? "left-6" : "left-1"
+                )}
+              />
+            </button>
           </div>
         </section>
 

@@ -9,6 +9,7 @@ const DEFAULTS: Omit<UserSettings, "user_id"> = {
   default_view: "day",
   home_page: "/app",
   agenda_view: "week",
+  handwriting_enabled: true,
 };
 
 const LS_KEY = "cadence-settings";
@@ -50,6 +51,7 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
           default_view: data.default_view,
           home_page: data.home_page,
           agenda_view: data.agenda_view,
+          handwriting_enabled: data.handwriting_enabled ?? true,
         } as Omit<UserSettings, "user_id">;
         setSettings(s);
         try {

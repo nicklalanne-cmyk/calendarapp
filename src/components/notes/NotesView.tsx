@@ -1,13 +1,18 @@
 "use client";
+import clsx from "clsx";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import VoiceMemo from "@/components/notes/VoiceMemo";
+import InkCanvas from "@/components/notes/InkCanvas";
+import { renderToPng, type Stroke } from "@/lib/ink";
+import { useSettings } from "@/components/SettingsProvider";
+import { makeDebouncer } from "@/lib/debounce";
 import AudioNote from "@/components/notes/AudioNote";
 import { format } from "date-fns";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Plus, Trash2, CalendarDays, Eye, Pencil, Link2, ArrowLeft, Mic } from "lucide-react";
+import { Plus, Trash2, CalendarDays, Eye, Pencil, Link2, ArrowLeft, Mic, PenLine, Type } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import type { Note, Task } from "@/lib/types";
@@ -20,6 +25,10 @@ export default function NotesView() {
   const [body, setBody] = useState("");
   const [preview, setPreview] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [mode, setMode] = useState<"text" | "ink">("text");
+  const [transcribing, setTranscribing] = useState(false);
+  const { settings } = useSettings();
+  const inkDebouncer = useRef(makeDebouncer(900)).current;
   const [linkedTask, setLinkedTask] = useState<Task | null>(null);
 
   const load = useCallback(async () => {
@@ -115,6 +124,62 @@ export default function NotesView() {
       .update({ title, body, updated_at: new Date().toISOString() })
       .eq("id", active.id);
     load();
+  };
+
+  const saveInk = (strokes: Stroke[], h: number) => {
+    if (!active) return;
+    const id = active.id;
+    inkDebouncer.run(`ink:${id}`, async () => {
+      const { error } = await supabase
+        .from("notes")
+        .update({ ink: { v: 1, strokes }, ink_height: h, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) toast(error.message, "error");
+    });
+  };
+
+  const transcribeInk = async (strokes: Stroke[], h: number) => {
+    if (!active || strokes.length === 0) return;
+    setTranscribing(true);
+    try {
+      // 1.4x gives the model more pixels to read without blowing the size limit
+      const png = renderToPng(strokes, h, 1.4);
+      if (!png) throw new Error("Couldn't render the page");
+
+      const res = await fetch("/api/ai/handwriting", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: png }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        toast(j.error ?? "Couldn't read the handwriting", "error");
+        return;
+      }
+      const text = (j.text ?? "").trim();
+      if (!text) {
+        toast("Nothing legible on the page", "error");
+        return;
+      }
+
+      // append rather than overwrite — never destroy what's already typed
+      const next = body.trim() ? `${body.trim()}\n\n${text}` : text;
+      setBody(next);
+      const { error } = await supabase
+        .from("notes")
+        .update({ body: next, updated_at: new Date().toISOString() })
+        .eq("id", active.id);
+      if (error) toast(error.message, "error");
+      else {
+        toast("Handwriting converted — check it before you trust it");
+        setMode("text");
+        load();
+      }
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setTranscribing(false);
+    }
   };
 
   const remove = async (n: Note) => {
@@ -285,7 +350,42 @@ export default function NotesView() {
               />
             )}
 
-            {preview ? (
+            {settings.handwriting_enabled && (
+              <div className="mb-3 flex w-fit items-center gap-0.5 rounded-lg bg-surface2 p-0.5">
+                <button
+                  onClick={() => setMode("text")}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition",
+                    mode === "text" ? "bg-surface text-txt shadow-sm" : "text-txt3"
+                  )}
+                >
+                  <Type className="h-3.5 w-3.5" /> Text
+                </button>
+                <button
+                  onClick={() => setMode("ink")}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition",
+                    mode === "ink" ? "bg-surface text-txt shadow-sm" : "text-txt3"
+                  )}
+                >
+                  <PenLine className="h-3.5 w-3.5" /> Handwriting
+                  {active.ink && (active.ink.strokes?.length ?? 0) > 0 && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                  )}
+                </button>
+              </div>
+            )}
+
+            {settings.handwriting_enabled && mode === "ink" ? (
+              <InkCanvas
+                key={active.id}
+                initial={(active.ink?.strokes as Stroke[]) ?? []}
+                initialHeight={active.ink_height}
+                onChange={saveInk}
+                onTranscribe={transcribeInk}
+                transcribing={transcribing}
+              />
+            ) : preview ? (
               <div className="prose-cadence flex-1 overflow-y-auto text-sm leading-relaxed">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{body || "*Nothing yet.*"}</ReactMarkdown>
               </div>
