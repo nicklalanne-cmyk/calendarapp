@@ -17,6 +17,8 @@ import {
   MoreHorizontal,
   Table2,
   Timer,
+  MessageSquarePlus,
+  Inbox,
   X,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
@@ -24,6 +26,7 @@ import Reminders from "@/components/Reminders";
 import Toaster from "@/components/Toaster";
 import Assistant from "@/components/Assistant";
 import QuickFab from "@/components/QuickFab";
+import FeedbackOverlay from "@/components/feedback/FeedbackOverlay";
 import clsx from "clsx";
 
 export default function AppShell({
@@ -38,6 +41,7 @@ export default function AppShell({
   const [cmdOpen, setCmdOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [feedback, setFeedback] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
@@ -80,7 +84,7 @@ export default function AppShell({
     { href: "/app/focus", label: "Focus", icon: Timer },
     { href: "/app/accounts", label: "Calendars", icon: Link2 },
   ];
-  const mobileNav = nav.slice(0, 4);
+  const mobileNav = [nav[0], nav[1], nav[2], nav[3]]; // Planner, Agenda, Notes, Pages
 
   // FAB actions broadcast to whatever page is mounted; pages listen and open their own modal.
   const fire = (name: string) => window.dispatchEvent(new CustomEvent(name));
@@ -160,6 +164,13 @@ export default function AppShell({
           <Sparkles className="h-5 w-5" />
         </button>
         <div className="mt-auto flex flex-col items-center gap-1">
+          <button
+            onClick={() => setFeedback(true)}
+            title="Report a bug or request a feature"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-txt3 transition hover:bg-surface hover:text-accent"
+          >
+            <MessageSquarePlus className="h-5 w-5" />
+          </button>
           <Link
             href="/app/settings"
             title="Settings"
@@ -230,6 +241,15 @@ export default function AppShell({
           {mobileNav.slice(2).map((n) => (
             <NavTab key={n.href} {...n} active={pathname.startsWith(n.href)} />
           ))}
+
+          {/* Overlay, not a route — so it never interrupts what you were doing. */}
+          <button
+            onClick={() => setFeedback(true)}
+            className="flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-[11px] font-medium text-txt3 transition active:opacity-60"
+          >
+            <MessageSquarePlus className="h-6 w-6" />
+            Report
+          </button>
         </nav>
       </div>
 
@@ -248,6 +268,14 @@ export default function AppShell({
               </button>
             </div>
             <div className="space-y-1">
+              <SheetRow
+                icon={<Inbox className="h-[18px] w-[18px]" />}
+                label="Feedback inbox"
+                onClick={() => {
+                  setSheet(false);
+                  router.push("/app/feedback");
+                }}
+              />
               <SheetRow
                 icon={<Timer className="h-[18px] w-[18px]" />}
                 label="Focus timer"
@@ -297,6 +325,7 @@ export default function AppShell({
 
       <CommandBar open={cmdOpen} onClose={() => setCmdOpen(false)} />
       <Assistant open={aiOpen} onClose={() => setAiOpen(false)} />
+      <FeedbackOverlay open={feedback} onClose={() => setFeedback(false)} />
       <Toaster />
     </div>
   );

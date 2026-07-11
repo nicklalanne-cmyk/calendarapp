@@ -279,16 +279,24 @@ export default function FocusView() {
             <div className="mt-1 text-xs uppercase tracking-widest text-txt3">
               {phaseLabel(st.phase)}
             </div>
-            <div className="mt-3 flex items-center justify-center gap-1.5">
-              {Array.from({ length: rounds }, (_, i) => (
-                <span
-                  key={i}
-                  className={clsx(
-                    "h-1.5 w-1.5 rounded-full",
-                    i < st.round % rounds ? "bg-accent" : "bg-surface3"
-                  )}
-                />
-              ))}
+            <div className="mt-3 flex items-center justify-center gap-1">
+              {Array.from({ length: rounds }, (_, i) => {
+                const earned = i < st.round % rounds;
+                return (
+                  <span
+                    key={i}
+                    title={earned ? "Pomodoro earned" : "Not yet"}
+                    className={clsx(
+                      "text-base leading-none transition-all",
+                      earned
+                        ? "scale-110 opacity-100"
+                        : "scale-90 opacity-25 grayscale"
+                    )}
+                  >
+                    🍅
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
