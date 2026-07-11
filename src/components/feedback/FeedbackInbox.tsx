@@ -60,6 +60,8 @@ export default function FeedbackInbox() {
     if (error) {
       toast(error.message, "error");
       load();
+    } else {
+      window.dispatchEvent(new CustomEvent("cadence:feedback-changed"));
     }
   };
 
@@ -71,6 +73,7 @@ export default function FeedbackInbox() {
       load();
     } else {
       toast("Deleted");
+      window.dispatchEvent(new CustomEvent("cadence:feedback-changed"));
     }
   };
 

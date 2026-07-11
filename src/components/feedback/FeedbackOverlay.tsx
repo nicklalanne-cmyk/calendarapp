@@ -85,6 +85,7 @@ export default function FeedbackOverlay({
 
     setText(BULLET);
     toast(kind === "bug" ? "Bug reported — thank you" : "Feature request sent — thank you");
+    window.dispatchEvent(new CustomEvent("cadence:feedback-changed"));
     loadMine();
   };
 

@@ -27,6 +27,7 @@ import Toaster from "@/components/Toaster";
 import Assistant from "@/components/Assistant";
 import QuickFab from "@/components/QuickFab";
 import FeedbackOverlay from "@/components/feedback/FeedbackOverlay";
+import { useAdminInbox } from "@/components/feedback/useAdminInbox";
 import clsx from "clsx";
 
 export default function AppShell({
@@ -42,6 +43,7 @@ export default function AppShell({
   const [aiOpen, setAiOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [feedback, setFeedback] = useState(false);
+  const { isAdmin, openCount } = useAdminInbox();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
@@ -164,6 +166,25 @@ export default function AppShell({
           <Sparkles className="h-5 w-5" />
         </button>
         <div className="mt-auto flex flex-col items-center gap-1">
+          {isAdmin && (
+            <Link
+              href="/app/feedback"
+              title={`Feedback inbox${openCount ? ` — ${openCount} open` : ""}`}
+              className={clsx(
+                "relative flex h-10 w-10 items-center justify-center rounded-xl transition",
+                pathname === "/app/feedback"
+                  ? "bg-surface3 text-txt"
+                  : "text-txt3 hover:bg-surface hover:text-txt"
+              )}
+            >
+              <Inbox className="h-5 w-5" />
+              {openCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white">
+                  {openCount > 9 ? "9+" : openCount}
+                </span>
+              )}
+            </Link>
+          )}
           <button
             onClick={() => setFeedback(true)}
             title="Report a bug or request a feature"
@@ -268,14 +289,16 @@ export default function AppShell({
               </button>
             </div>
             <div className="space-y-1">
-              <SheetRow
-                icon={<Inbox className="h-[18px] w-[18px]" />}
-                label="Feedback inbox"
-                onClick={() => {
-                  setSheet(false);
-                  router.push("/app/feedback");
-                }}
-              />
+              {isAdmin && (
+                <SheetRow
+                  icon={<Inbox className="h-[18px] w-[18px]" />}
+                  label={`Feedback inbox${openCount ? ` (${openCount})` : ""}`}
+                  onClick={() => {
+                    setSheet(false);
+                    router.push("/app/feedback");
+                  }}
+                />
+              )}
               <SheetRow
                 icon={<Timer className="h-[18px] w-[18px]" />}
                 label="Focus timer"
