@@ -11,12 +11,14 @@ export default function RecordSheet({
   onClose,
   onChange,
   onDelete,
+  dateMenuFor,
 }: {
   record: PageRecord;
   props: PageProperty[];
   onClose: () => void;
   onChange: (patch: { title?: string; props?: Record<string, unknown> }) => void;
   onDelete: () => void;
+  dateMenuFor?: (r: PageRecord, p: PageProperty) => React.ReactNode;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center">
@@ -44,6 +46,7 @@ export default function RecordSheet({
               <PropertyCell
                 prop={p}
                 value={record.props[p.id]}
+                dateMenu={dateMenuFor?.(record, p)}
                 onChange={(v) => onChange({ props: { ...record.props, [p.id]: v } })}
               />
             </div>

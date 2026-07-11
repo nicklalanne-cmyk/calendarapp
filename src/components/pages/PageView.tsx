@@ -12,10 +12,14 @@ import { makeDebouncer } from "@/lib/debounce";
 import { toast } from "@/lib/toast";
 import {
   CHOICE_COLORS, uid, retypeProperty,
-  type Page, type PageProperty, type PageRecord, type PageView as View, type PropType,
+  type CellLink, type Page, type PageProperty, type PageRecord,
+  type PageView as View, type PropType,
 } from "@/lib/pages";
 import { TableView, BoardView, ListView, CalendarView, type ViewProps } from "@/components/pages/PageViews";
 import RecordSheet from "@/components/pages/RecordSheet";
+import DateCellMenu, { type DateAction } from "@/components/pages/DateCellMenu";
+import LinkPicker from "@/components/notes/LinkPicker";
+import type { Task } from "@/lib/types";
 import ValueChip from "@/components/pages/ValueChip";
 import IconPicker from "@/components/pages/IconPicker";
 
@@ -36,6 +40,9 @@ export default function PageView({ pageId }: { pageId: string }) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<PageRecord | null>(null);
   const [query, setQuery] = useState("");
+  const [linkedTasks, setLinkedTasks] = useState<Record<string, Task>>({});
+  const [cellBusy, setCellBusy] = useState<string | null>(null);
+  const [picking, setPicking] = useState<{ recordId: string; propId: string } | null>(null);
 
   // One DB round-trip per keystroke was hammering Supabase. Update the UI
   // immediately, then coalesce the writes.
@@ -57,6 +64,33 @@ export default function PageView({ pageId }: { pageId: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Pull the linked tasks so a date cell can show whether its task is done.
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(
+        records.flatMap((r) =>
+          Object.values(r.links ?? {})
+            .filter((l): l is Extract<CellLink, { kind: "task" }> => l?.kind === "task")
+            .map((l) => l.id)
+        )
+      )
+    );
+    if (ids.length === 0) {
+      setLinkedTasks({});
+      return;
+    }
+    (async () => {
+      const { data } = await supabase
+        .from("tasks")
+        .select("*")
+        .in("id", ids)
+        .is("deleted_at", null);
+      const map: Record<string, Task> = {};
+      for (const t of (data as Task[]) ?? []) map[t.id] = t;
+      setLinkedTasks(map);
+    })();
+  }, [records, supabase]);
 
   // Realtime. Guard: if a debounced write for a row is still queued, this tab is
   // mid-edit — ignore the echo so we don't overwrite what's being typed.
@@ -222,6 +256,126 @@ export default function PageView({ pageId }: { pageId: string }) {
     else debouncer.run(`rec:${id}`, write);
   };
 
+  const setLink = async (recordId: string, propId: string, link: CellLink | null) => {
+    const rec = records.find((r) => r.id === recordId);
+    if (!rec) return;
+    const links = { ...(rec.links ?? {}) };
+    if (link) links[propId] = link;
+    else delete links[propId];
+
+    setRecords((cur) => cur.map((r) => (r.id === recordId ? { ...r, links } : r)));
+    const { error } = await supabase
+      .from("page_records")
+      .update({ links, updated_at: new Date().toISOString() })
+      .eq("id", recordId);
+    if (error) toast(error.message, "error");
+  };
+
+  const dateAction = async (
+    rec: PageRecord,
+    prop: PageProperty,
+    action: DateAction
+  ) => {
+    const date = rec.props[prop.id];
+    const existing = (rec.links ?? {})[prop.id];
+    const key = `${rec.id}:${prop.id}`;
+    const label = `${rec.title || "Untitled"} — ${prop.name}`;
+
+    if (action.type === "open") {
+      router.push(existing?.kind === "task" ? "/app" : "/app/agenda");
+      return;
+    }
+
+    if (action.type === "unlink") {
+      await setLink(rec.id, prop.id, null);
+      toast("Unlinked");
+      return;
+    }
+
+    if (action.type === "link") {
+      setPicking({ recordId: rec.id, propId: prop.id });
+      return;
+    }
+
+    if (!date) return;
+    setCellBusy(key);
+
+    try {
+      if (action.type === "create-task") {
+        const { data, error } = await supabase
+          .from("tasks")
+          .insert({
+            title: label,
+            due_date: String(date).slice(0, 10),
+            due_kind: "day",
+            page_id: page!.id,
+            page_record_id: rec.id,
+          })
+          .select("id,title")
+          .single();
+        if (error) throw new Error(error.message);
+        await setLink(rec.id, prop.id, {
+          kind: "task",
+          id: data.id as string,
+          title: data.title as string,
+        });
+        toast(`Task created — due ${String(date).slice(0, 10)}`);
+        window.dispatchEvent(new CustomEvent("cadence:tasks-changed"));
+        return;
+      }
+
+      // create-event
+      const start = new Date(`${String(date).slice(0, 10)}T${action.time}:00`);
+      const end = new Date(start.getTime() + action.minutes * 60000);
+      const res = await fetch("/api/google/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: label,
+          start: start.toISOString(),
+          end: end.toISOString(),
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j?.event) throw new Error(j?.error ?? "Couldn't create the event");
+
+      await setLink(rec.id, prop.id, {
+        kind: "event",
+        id: j.event.id,
+        calendarId: j.event.calendarId,
+        accountId: j.event.accountId,
+        title: label,
+        start: start.toISOString(),
+      });
+      toast(
+        `Event created — ${start.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}`
+      );
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setCellBusy(null);
+    }
+  };
+
+  const dateMenuFor = (rec: PageRecord, prop: PageProperty) => {
+    if (prop.type !== "date") return undefined;
+    const link = (rec.links ?? {})[prop.id];
+    const task = link?.kind === "task" ? linkedTasks[link.id] : undefined;
+    return (
+      <DateCellMenu
+        link={link}
+        done={task?.is_done}
+        busy={cellBusy === `${rec.id}:${prop.id}`}
+        onAction={(a) => dateAction(rec, prop, a)}
+      />
+    );
+  };
+
   const deleteRecord = async (r: PageRecord) => {
     setOpen(null);
     setRecords((cur) => cur.filter((x) => x.id !== r.id));
@@ -295,6 +449,7 @@ export default function PageView({ pageId }: { pageId: string }) {
             onSaveProperty: saveProperty,
             onDeleteProperty: deleteProperty,
             onSetGroupBy: (id) => savePage({ group_by: id }, true),
+            dateMenuFor,
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -459,10 +614,39 @@ export default function PageView({ pageId }: { pageId: string }) {
         )}
       </div>
 
+      {picking && (
+        <LinkPicker
+          title="Link this date to…"
+          onClose={() => setPicking(null)}
+          onPick={async (l) => {
+            const rec = records.find((r) => r.id === picking.recordId);
+            const p = picking;
+            setPicking(null);
+            if (!rec) return;
+            await setLink(
+              p.recordId,
+              p.propId,
+              l.kind === "task"
+                ? { kind: "task", id: l.task.id, title: l.task.title }
+                : {
+                    kind: "event",
+                    id: l.id,
+                    calendarId: l.calendarId,
+                    accountId: l.accountId,
+                    title: l.title,
+                    start: l.start,
+                  }
+            );
+            toast("Linked");
+          }}
+        />
+      )}
+
       {open && (
         <RecordSheet
           record={open}
           props={props}
+          dateMenuFor={dateMenuFor}
           onClose={() => setOpen(null)}
           onChange={(patch) => patchRecord(open.id, patch)}
           onDelete={() => deleteRecord(open)}

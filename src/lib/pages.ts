@@ -20,11 +20,25 @@ export type PageProperty = {
   position: number;
 };
 
+/** What a date cell has been turned into / linked to. */
+export type CellLink =
+  | { kind: "task"; id: string; title: string }
+  | {
+      kind: "event";
+      id: string;
+      calendarId: string;
+      accountId: string;
+      title: string;
+      start: string;
+    };
+
 export type PageRecord = {
   id: string;
   page_id: string;
   title: string;
   props: Record<string, unknown>;
+  /** keyed by property id — a record can link each of its dates separately */
+  links: Record<string, CellLink>;
   position: number;
   created_at: string;
 };

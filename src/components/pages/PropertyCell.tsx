@@ -15,11 +15,14 @@ export default function PropertyCell({
   value,
   onChange,
   compact,
+  dateMenu,
 }: {
   prop: PageProperty;
   value: unknown;
   onChange: (v: unknown) => void;
   compact?: boolean;
+  /** Rendered next to a date value: turn it into a task/event. */
+  dateMenu?: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>(value == null ? "" : String(value));
@@ -208,11 +211,11 @@ export default function PropertyCell({
   const display = formatValue(value, prop);
   const isLink = prop.type === "email" || prop.type === "url" || prop.type === "phone";
 
-  return (
+  const face = (
     <button
       onClick={() => setEditing(true)}
       className={clsx(
-        "block w-full truncate rounded px-1.5 py-1 text-left text-sm hover:bg-surface2",
+        "min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-sm hover:bg-surface2",
         !display && "text-txt3",
         compact && "text-xs"
       )}
@@ -230,4 +233,15 @@ export default function PropertyCell({
       )}
     </button>
   );
+
+  if (prop.type === "date" && dateMenu && display) {
+    return (
+      <div className="flex items-center gap-0.5">
+        {face}
+        {dateMenu}
+      </div>
+    );
+  }
+
+  return <div className="flex w-full">{face}</div>;
 }

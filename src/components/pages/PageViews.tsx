@@ -18,6 +18,8 @@ export type ViewProps = {
   page: Page;
   props: PageProperty[];
   records: PageRecord[];
+  /** Renders the "turn this date into a task/event" control for a date cell. */
+  dateMenuFor?: (r: PageRecord, p: PageProperty) => React.ReactNode;
   onAddRecord: (seed?: Record<string, unknown>) => void;
   onPatchRecord: (id: string, patch: { title?: string; props?: Record<string, unknown> }) => void;
   onOpenRecord: (r: PageRecord) => void;
@@ -152,6 +154,7 @@ export function TableView(v: ViewProps) {
                             <PropertyCell
                               prop={p}
                               value={r.props[p.id]}
+                              dateMenu={v.dateMenuFor?.(r, p)}
                               onChange={(val) =>
                                 v.onPatchRecord(r.id, { props: { ...r.props, [p.id]: val } })
                               }
