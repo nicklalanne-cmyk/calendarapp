@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, X } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -24,18 +25,53 @@ export default function PropertyCell({
   const [draft, setDraft] = useState<string>(value == null ? "" : String(value));
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     setDraft(value == null ? "" : String(value));
   }, [value]);
 
+  // The menu is rendered in a portal: a table cell lives inside overflow-x-auto,
+  // which would otherwise clip an absolutely-positioned dropdown.
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const place = () => {
+      const r = btnRef.current!.getBoundingClientRect();
+      const H = 260;
+      const below = window.innerHeight - r.bottom;
+      setMenuPos({
+        top: below < H && r.top > below ? r.top - Math.min(H, r.top) - 4 : r.bottom + 4,
+        left: Math.min(r.left, window.innerWidth - 190),
+        width: Math.max(r.width, 170),
+      });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (
+        ref.current?.contains(e.target as Node) ||
+        (e.target as HTMLElement).closest?.("[data-cadence-menu]")
+      )
+        return;
+      setOpen(false);
     };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", away);
-    return () => document.removeEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
   }, [open]);
 
   const commit = () => {
@@ -72,8 +108,9 @@ export default function PropertyCell({
     return (
       <div ref={ref} className="relative">
         <button
+          ref={btnRef}
           onClick={() => setOpen((v) => !v)}
-          className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-surface2"
+          className="flex w-full items-center gap-1 rounded px-1 py-1.5 text-left hover:bg-surface2"
         >
           {c ? (
             <span
@@ -88,8 +125,14 @@ export default function PropertyCell({
           <ChevronDown className="ml-auto h-3 w-3 shrink-0 text-txt3" />
         </button>
 
-        {open && (
-          <div className="absolute left-0 top-full z-30 mt-1 min-w-[160px] rounded-lg border border-border bg-surface p-1 shadow-xl">
+        {open &&
+          menuPos &&
+          createPortal(
+            <div
+              data-cadence-menu
+              style={{ position: "fixed", top: menuPos.top, left: menuPos.left, width: menuPos.width }}
+              className="z-[70] max-h-[260px] overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-2xl"
+            >
             <button
               onClick={() => {
                 onChange(null);
@@ -122,8 +165,9 @@ export default function PropertyCell({
                 No options yet — add them in the column menu.
               </p>
             )}
-          </div>
-        )}
+            </div>,
+            document.body
+          )}
       </div>
     );
   }

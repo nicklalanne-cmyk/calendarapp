@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Table2, Kanban, List as ListIcon, CalendarDays, ArrowLeft, Trash2, Plus, Loader2,
+  Search, ArrowUpDown, X,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
+import { makeDebouncer } from "@/lib/debounce";
 import { toast } from "@/lib/toast";
 import {
   CHOICE_COLORS, uid,
@@ -14,7 +16,7 @@ import {
 } from "@/lib/pages";
 import { TableView, BoardView, ListView, CalendarView, type ViewProps } from "@/components/pages/PageViews";
 import RecordSheet from "@/components/pages/RecordSheet";
-import PropertyCell from "@/components/pages/PropertyCell";
+import ValueChip from "@/components/pages/ValueChip";
 
 const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "table", label: "Table", icon: Table2 },
@@ -32,6 +34,7 @@ export default function PageView({ pageId }: { pageId: string }) {
   const [records, setRecords] = useState<PageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<PageRecord | null>(null);
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: pr }, { data: rc }] = await Promise.all([
@@ -56,14 +59,24 @@ export default function PageView({ pageId }: { pageId: string }) {
     if (fresh && fresh !== open) setOpen(fresh);
   }, [records, open]);
 
-  const savePage = async (patch: Partial<Page>) => {
+  // One DB round-trip per keystroke was hammering Supabase. Update the UI
+  // immediately, then coalesce the writes.
+  const debouncer = useRef(makeDebouncer(500)).current;
+  useEffect(() => () => debouncer.flushAll(), [debouncer]);
+
+  const savePage = (patch: Partial<Page>, immediate = false) => {
     if (!page) return;
-    setPage({ ...page, ...patch });
-    const { error } = await supabase
-      .from("pages")
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq("id", page.id);
-    if (error) toast(error.message, "error");
+    const id = page.id;
+    setPage((cur) => (cur ? { ...cur, ...patch } : cur));
+    const write = async () => {
+      const { error } = await supabase
+        .from("pages")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) toast(error.message, "error");
+    };
+    if (immediate) void write();
+    else debouncer.run(`page:${Object.keys(patch).join(",")}`, write);
   };
 
   const addProperty = async () => {
@@ -114,16 +127,23 @@ export default function PageView({ pageId }: { pageId: string }) {
     setRecords((r) => [...r, data as PageRecord]);
   };
 
-  const patchRecord = async (
+  const patchRecord = (
     id: string,
     patch: { title?: string; props?: Record<string, unknown> }
   ) => {
     setRecords((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    const { error } = await supabase
-      .from("page_records")
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq("id", id);
-    if (error) toast(error.message, "error");
+
+    const write = async () => {
+      const { error } = await supabase
+        .from("page_records")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) toast(error.message, "error");
+    };
+
+    // property values are discrete clicks — save them at once; titles are typed
+    if (patch.props) void write();
+    else debouncer.run(`rec:${id}`, write);
   };
 
   const deleteRecord = async (r: PageRecord) => {
@@ -167,24 +187,42 @@ export default function PageView({ pageId }: { pageId: string }) {
     });
   };
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return records;
+    return records.filter((r) => {
+      if (r.title.toLowerCase().includes(q)) return true;
+      // search across every property value, resolving select ids to their labels
+      return props.some((p) => {
+        const v = r.props[p.id];
+        if (v == null || v === "") return false;
+        if (p.type === "select") {
+          const c = (p.options.choices ?? []).find((x) => x.id === v);
+          return c ? c.label.toLowerCase().includes(q) : false;
+        }
+        return String(v).toLowerCase().includes(q);
+      });
+    });
+  }, [records, props, query]);
+
   const vp: ViewProps | null = useMemo(
     () =>
       page
         ? {
             page,
             props,
-            records,
+            records: visible,
             onAddRecord: addRecord,
             onPatchRecord: patchRecord,
             onOpenRecord: setOpen,
             onAddProperty: addProperty,
             onSaveProperty: saveProperty,
             onDeleteProperty: deleteProperty,
-            onSetGroupBy: (id) => savePage({ group_by: id }),
+            onSetGroupBy: (id) => savePage({ group_by: id }, true),
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [page, props, records]
+    [page, props, visible]
   );
 
   if (loading) {
@@ -211,7 +249,7 @@ export default function PageView({ pageId }: { pageId: string }) {
           <input
             value={page.title}
             onChange={(e) => savePage({ title: e.target.value })}
-            placeholder="Untitled"
+            placeholder="Untitled page"
             className="min-w-0 flex-1 bg-transparent text-2xl font-bold outline-none placeholder:text-txt3 md:text-3xl"
           />
           <button
@@ -237,7 +275,7 @@ export default function PageView({ pageId }: { pageId: string }) {
             return (
               <button
                 key={v.id}
-                onClick={() => savePage({ view: v.id })}
+                onClick={() => savePage({ view: v.id }, true)}
                 className={clsx(
                   "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition",
                   active
@@ -251,22 +289,77 @@ export default function PageView({ pageId }: { pageId: string }) {
             );
           })}
 
-          {page.view === "calendar" && (
-            <select
-              value={page.date_prop ?? ""}
-              onChange={(e) => savePage({ date_prop: e.target.value || null })}
-              className="ml-auto rounded-md border border-border bg-surface px-2 py-1 text-xs text-txt2 outline-none"
-            >
-              {props
-                .filter((p) => p.type === "date")
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-          )}
+          <div className="ml-auto flex items-center gap-1.5 pb-1">
+            {page.view === "calendar" && (
+              <select
+                value={page.date_prop ?? ""}
+                onChange={(e) => savePage({ date_prop: e.target.value || null }, true)}
+                className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-txt2 outline-none"
+              >
+                {props
+                  .filter((p) => p.type === "date")
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            )}
+
+            {page.view !== "calendar" && (
+              <div className="flex items-center gap-1 rounded-md border border-border bg-surface px-2">
+                <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-txt3" />
+                <select
+                  value={page.sort_by ?? ""}
+                  onChange={(e) => savePage({ sort_by: e.target.value || null }, true)}
+                  className="max-w-[110px] bg-transparent py-1.5 text-xs text-txt2 outline-none"
+                >
+                  <option value="">Manual</option>
+                  {props.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                {page.sort_by && (
+                  <button
+                    onClick={() =>
+                      savePage({ sort_dir: page.sort_dir === "asc" ? "desc" : "asc" }, true)
+                    }
+                    title={page.sort_dir === "asc" ? "Ascending" : "Descending"}
+                    className="shrink-0 px-1 text-xs text-txt3 hover:text-txt"
+                  >
+                    {page.sort_dir === "asc" ? "↑" : "↓"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center gap-1 rounded-md border border-border bg-surface px-2">
+              <Search className="h-3.5 w-3.5 shrink-0 text-txt3" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search…"
+                className="w-[90px] bg-transparent py-1.5 text-xs outline-none placeholder:text-txt3 focus:w-[140px] md:w-[120px]"
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery("")}
+                  className="shrink-0 text-txt3 hover:text-txt"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
+
+        {query && (
+          <p className="pt-1.5 text-xs text-txt3">
+            {visible.length} of {records.length} matching “{query}”
+          </p>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
@@ -350,15 +443,9 @@ function MobileCards({ vp }: { vp: ViewProps }) {
               >
                 <div className="truncate text-[15px] font-medium">{r.title || "Untitled"}</div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {shown.map((p) => {
-                    const val = r.props[p.id];
-                    if (val == null || val === "") return null;
-                    return (
-                      <span key={p.id} className="flex items-center gap-1 text-xs text-txt3">
-                        <PropertyCell prop={p} value={val} onChange={() => {}} compact />
-                      </span>
-                    );
-                  })}
+                  {shown.map((p) => (
+                    <ValueChip key={p.id} prop={p} value={r.props[p.id]} />
+                  ))}
                 </div>
               </button>
             ))}

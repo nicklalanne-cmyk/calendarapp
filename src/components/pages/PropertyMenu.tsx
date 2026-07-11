@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Trash2, Plus, GripVertical } from "lucide-react";
 import clsx from "clsx";
 import { CHOICE_COLORS, PROP_TYPES, uid, type PageProperty, type PropType } from "@/lib/pages";
@@ -21,15 +22,47 @@ export default function PropertyMenu({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(prop.name);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => setName(prop.name), [prop.name]);
+  // Portal: the header cell sits inside overflow-x-auto, which clips an
+  // absolutely-positioned menu.
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const place = () => {
+      const r = btnRef.current!.getBoundingClientRect();
+      setPos({
+        top: Math.min(r.bottom + 4, window.innerHeight - 340),
+        left: Math.min(r.left, window.innerWidth - 270),
+      });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (
+        ref.current?.contains(e.target as Node) ||
+        (e.target as HTMLElement).closest?.("[data-cadence-propmenu]")
+      )
+        return;
+      setOpen(false);
     };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", away);
-    return () => document.removeEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
   }, [open]);
 
   const choices = prop.options.choices ?? [];
@@ -46,6 +79,7 @@ export default function PropertyMenu({
   return (
     <div ref={ref} className="relative">
       <button
+        ref={btnRef}
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-txt3 hover:bg-surface2"
       >
@@ -53,8 +87,14 @@ export default function PropertyMenu({
         <ChevronDown className="ml-auto h-3 w-3 shrink-0 opacity-0 group-hover/col:opacity-100" />
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-40 mt-1 w-64 rounded-xl border border-border bg-surface p-2 shadow-xl">
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            data-cadence-propmenu
+            style={{ position: "fixed", top: pos.top, left: pos.left }}
+            className="z-[70] max-h-[340px] w-64 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl"
+          >
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -161,8 +201,9 @@ export default function PropertyMenu({
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete property
           </button>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

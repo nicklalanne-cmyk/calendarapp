@@ -123,7 +123,8 @@ export default function AppShell({
           <CalendarDays className="h-5 w-5" />
         </div>
         {nav.map((n) => {
-          const active = pathname === n.href;
+          const active =
+            n.href === "/app" ? pathname === "/app" : pathname.startsWith(n.href);
           const Icon = n.icon;
           return (
             <Link
