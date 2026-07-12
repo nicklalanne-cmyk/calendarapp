@@ -567,7 +567,7 @@ export default function AgendaView() {
         <span
           className={clsx(
             "min-w-0 flex-1 text-txt",
-            compact ? "text-[11px] leading-tight" : "text-[15px] md:text-sm",
+            compact ? "text-[10px] leading-tight" : "text-[15px] md:text-xs",
             mode === "week" ? "break-words" : "truncate"
           )}
         >
@@ -581,7 +581,7 @@ export default function AgendaView() {
         {showDue && chip && (
           <span
             className={clsx(
-              "shrink-0 whitespace-nowrap text-[11px]",
+              "shrink-0 whitespace-nowrap text-[11px] md:text-[10px]",
               chip.overdue ? "text-danger" : "text-txt3"
             )}
           >
@@ -632,34 +632,41 @@ export default function AgendaView() {
       >
         <div
           className={clsx(
-            "mb-2 flex items-baseline border-b border-border pb-1",
-            horizontal ? "flex-wrap gap-1" : "gap-2"
+            "mb-2 flex flex-nowrap items-baseline overflow-hidden border-b border-border pb-1",
+            horizontal ? "gap-1" : "gap-2"
           )}
         >
           <span
             className={clsx(
-              "font-semibold",
-              horizontal ? "text-xs" : "text-sm",
+              "shrink-0 whitespace-nowrap font-semibold",
+              horizontal ? "text-xs" : "text-sm md:text-xs",
               isToday ? "text-accent" : "text-txt"
             )}
           >
             {isToday ? "Today" : horizontal ? format(day, "EEE") : format(day, "EEEE")}
           </span>
-          <span className={clsx("text-txt3", horizontal ? "text-[10px]" : "text-xs")}>
+          <span
+            className={clsx(
+              "shrink-0 whitespace-nowrap text-txt3",
+              horizontal ? "text-[10px]" : "text-xs md:text-[10px]"
+            )}
+          >
             {format(day, "MMM d")}
           </span>
-          {emptyDay && mode === "day" && <span className="ml-auto text-xs text-txt3">Nothing scheduled</span>}
+          {emptyDay && mode === "day" && (
+            <span className="ml-auto text-xs text-txt3 md:text-[10px]">Nothing scheduled</span>
+          )}
           {mode === "week" && (
             <button
               onClick={() => jumpToDay(day)}
               title="Open this day to edit, add, or delete"
               className={clsx(
-                "ml-auto flex items-center gap-1 rounded-md text-txt3 hover:bg-surface2 hover:text-accent",
-                horizontal ? "p-0.5" : "px-1.5 py-0.5 text-[11px]"
+                "ml-auto flex shrink-0 items-center gap-1 rounded-md text-txt3 hover:bg-surface2 hover:text-accent",
+                horizontal ? "p-0.5" : "px-1.5 py-0.5 text-[11px] md:text-[10px]"
               )}
             >
               {!horizontal && "Open day "}
-              <ArrowUpRight className="h-3 w-3" />
+              <ArrowUpRight className="h-3 w-3 shrink-0" />
             </button>
           )}
         </div>
@@ -710,7 +717,7 @@ export default function AgendaView() {
                 <span
                   className={clsx(
                     "text-txt",
-                    horizontal ? "text-[11px] leading-tight" : "text-[15px] md:text-sm",
+                    horizontal ? "text-[10px] leading-tight" : "text-[15px] md:text-xs",
                     titleCls
                   )}
                 >
@@ -720,7 +727,7 @@ export default function AgendaView() {
               <span
                 className={clsx(
                   "shrink-0 whitespace-nowrap tabular-nums text-txt3",
-                  horizontal ? "text-[10px]" : "text-xs"
+                  horizontal ? "text-[10px]" : "text-xs md:text-[10px]"
                 )}
               >
                 {e.allDay ? "All day" : fmtTime(parseISO(e.start))}
@@ -729,7 +736,7 @@ export default function AgendaView() {
             <div
               className={clsx(
                 "flex items-center gap-3 text-txt3",
-                horizontal ? "pl-3 text-[10px]" : "pl-4 text-[11px]"
+                horizontal ? "pl-3 text-[10px]" : "pl-4 text-[11px] md:text-[10px]"
               )}
             >
               {e.location && mode === "week" && (
@@ -767,18 +774,18 @@ export default function AgendaView() {
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 items-start gap-2">
                 <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accentSoft" />
-                <span className={clsx("flex items-center gap-1.5 text-[15px] text-txt md:text-sm", titleCls)}>
+                <span className={clsx("flex items-center gap-1.5 text-[15px] text-txt md:text-xs", titleCls)}>
                   <span className={titleCls}>{e.title}</span>
                   <Users className="h-3 w-3 shrink-0 text-accentSoft" />
                 </span>
               </div>
-              <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
+              <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3 md:text-[10px]">
                 {e.all_day ? "All day" : fmtTime(parseISO(e.start_at))}
               </span>
             </div>
             <div className="pl-4">
               {e.location && (
-                <div className="flex items-center gap-1 text-[11px] text-txt3">
+                <div className="flex items-center gap-1 text-[11px] text-txt3 md:text-[10px]">
                   <MapPin className="h-3 w-3 shrink-0" />
                   <span className={titleCls}>{e.location}</span>
                 </div>
@@ -845,7 +852,7 @@ export default function AgendaView() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* desktop header */}
         <header className="hidden items-center gap-2 border-b border-border px-4 py-2.5 md:flex">
-          <h1 className="text-lg font-semibold">{title}</h1>
+          <h1 className="text-sm font-semibold">{title}</h1>
           <div className="ml-1 flex items-center">
             <button
               onClick={() => shiftWeek(-1)}
@@ -882,11 +889,11 @@ export default function AgendaView() {
           </div>
           <button
             onClick={() => setAnchor(new Date())}
-            className="rounded-md border border-border px-2 py-1 text-xs text-txt2 hover:bg-surface"
+            className="rounded-md border border-border px-2 py-1 text-[11px] text-txt2 hover:bg-surface"
           >
             Today
           </button>
-          <div className="ml-1 flex overflow-hidden rounded-md border border-border text-xs">
+          <div className="ml-1 flex overflow-hidden rounded-md border border-border text-[11px]">
             {(["day", "week"] as const).map((m) => (
               <button
                 key={m}
@@ -905,7 +912,7 @@ export default function AgendaView() {
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={() => setCreating(true)}
-              className="flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:bg-accentSoft"
+              className="flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-white hover:bg-accentSoft"
             >
               <Plus className="h-3.5 w-3.5" /> Task
             </button>
@@ -915,7 +922,7 @@ export default function AgendaView() {
               onChange={(e) =>
                 e.target.value && setAnchor(new Date(`${e.target.value}T00:00:00`))
               }
-              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-txt2 outline-none focus:border-accent"
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-[11px] text-txt2 outline-none focus:border-accent"
             />
           </div>
         </header>
@@ -1055,13 +1062,13 @@ export default function AgendaView() {
                   an equal-fraction grid with the compact/shrunk text in TaskRow and
                   renderDayCell (see `compact`/`horizontal` above) so narrow columns
                   stay readable instead of collapsing to one letter per line. */}
-              <div className="hidden h-full grid-cols-7 gap-2 p-4 md:grid md:p-6">
+              <div className="hidden h-full grid-cols-7 items-start gap-2 p-4 md:grid md:p-6">
                 {days.map((day, i) => (
                   <div
                     key={day.toISOString()}
                     className={clsx(
                       "min-w-0",
-                      i < days.length - 1 && "my-2 border-r border-txt3/10 pr-2"
+                      i < days.length - 1 && "border-r border-txt3/10 pr-2"
                     )}
                   >
                     {renderDayCell(day, true)}
