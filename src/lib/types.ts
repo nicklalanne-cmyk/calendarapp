@@ -45,6 +45,7 @@ export type Note = {
   event_title: string | null;
   event_start: string | null;
   updated_at: string;
+  pinned_at: string | null;
 };
 
 export type Attendee = {

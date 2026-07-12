@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, X } from "lucide-react";
+import { Plus, Loader2, X, Star } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
+import { recordRecent } from "@/lib/recent";
 import { CHOICE_COLORS, TEMPLATES, uid, type Page, type Template } from "@/lib/pages";
 
 export default function PagesList() {
@@ -14,6 +15,9 @@ export default function PagesList() {
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const pinnedPages = pages.filter((p) => p.pinned_at);
+  const otherPages = pages.filter((p) => !p.pinned_at);
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -28,6 +32,29 @@ export default function PagesList() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const openPage = (p: Page) => {
+    recordRecent({ kind: "page", id: p.id, label: p.title, href: `/app/pages/${p.id}` });
+    router.push(`/app/pages/${p.id}`);
+  };
+
+  const togglePin = async (p: Page, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const pinning = !p.pinned_at;
+    setPages((prev) =>
+      prev.map((x) => (x.id === p.id ? { ...x, pinned_at: pinning ? new Date().toISOString() : null } : x))
+    );
+    const { error } = await supabase
+      .from("pages")
+      .update({ pinned_at: pinning ? new Date().toISOString() : null })
+      .eq("id", p.id);
+    if (error) {
+      toast(error.message, "error");
+      load();
+    } else {
+      toast(pinning ? `Pinned "${p.title}"` : `Unpinned "${p.title}"`);
+    }
+  };
 
   const create = async (t: Template) => {
     setCreating(true);
@@ -134,23 +161,32 @@ export default function PagesList() {
             </button>
           </div>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {pages.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => router.push(`/app/pages/${p.id}`)}
-                className="flex items-start gap-3 rounded-xl border border-border bg-surface p-4 text-left transition hover:border-accent/50"
-              >
-                <span className="text-xl">{p.icon ?? "📄"}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{p.title}</span>
-                  <span className="block truncate text-xs text-txt3">
-                    {p.description || `${p.view} view`}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
+          <>
+            {pinnedPages.length > 0 && (
+              <div className="mb-5">
+                <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-txt3">
+                  <Star className="h-3 w-3" /> Pinned
+                </h2>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {pinnedPages.map((p) => (
+                    <PageCard key={p.id} page={p} onOpen={() => openPage(p)} onTogglePin={(e) => togglePin(p, e)} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {otherPages.length > 0 && (
+              <div>
+                {pinnedPages.length > 0 && (
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-txt3">All pages</h2>
+                )}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {otherPages.map((p) => (
+                    <PageCard key={p.id} page={p} onOpen={() => openPage(p)} onTogglePin={(e) => togglePin(p, e)} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -193,5 +229,39 @@ export default function PagesList() {
         </div>
       )}
     </div>
+  );
+}
+
+function PageCard({
+  page,
+  onOpen,
+  onTogglePin,
+}: {
+  page: Page;
+  onOpen: () => void;
+  onTogglePin: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      onClick={onOpen}
+      className="group relative flex items-start gap-3 rounded-xl border border-border bg-surface p-4 text-left transition hover:border-accent/50"
+    >
+      <span className="text-xl">{page.icon ?? "📄"}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate pr-6 font-medium">{page.title}</span>
+        <span className="block truncate text-xs text-txt3">{page.description || `${page.view} view`}</span>
+      </span>
+      <span
+        onClick={onTogglePin}
+        role="button"
+        aria-label={page.pinned_at ? "Unpin" : "Pin"}
+        title={page.pinned_at ? "Unpin" : "Pin to top"}
+        className={`absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-lg active:bg-surface2 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100 ${
+          page.pinned_at ? "text-accent md:opacity-100" : "text-txt3"
+        }`}
+      >
+        <Star className="h-4 w-4" fill={page.pinned_at ? "currentColor" : "none"} />
+      </span>
+    </button>
   );
 }

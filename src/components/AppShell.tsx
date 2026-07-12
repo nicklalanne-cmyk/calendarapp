@@ -19,6 +19,7 @@ import {
   Timer,
   MessageSquarePlus,
   Inbox,
+  Search,
   X,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
@@ -248,6 +249,13 @@ export default function AppShell({
           </div>
           <span className="text-base font-semibold">Cadence</span>
           <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => setCmdOpen(true)}
+              aria-label="Search"
+              className="flex h-11 w-11 items-center justify-center rounded-xl text-txt2 active:bg-surface2"
+            >
+              <Search className="h-[22px] w-[22px]" />
+            </button>
             <button
               onClick={() => setAiOpen(true)}
               aria-label="Ask Cadence"

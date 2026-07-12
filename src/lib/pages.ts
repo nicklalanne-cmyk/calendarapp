@@ -56,6 +56,7 @@ export type Page = {
   sort_by: string | null;
   sort_dir: "asc" | "desc";
   position: number;
+  pinned_at: string | null;
 };
 
 export const PROP_TYPES: { type: PropType; label: string }[] = [

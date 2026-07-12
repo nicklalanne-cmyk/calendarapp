@@ -34,9 +34,11 @@ import {
   Italic,
   Strikethrough,
   Heading2,
+  Star,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
+import { recordRecent } from "@/lib/recent";
 import type { Note, Task } from "@/lib/types";
 
 export default function NotesView() {
@@ -86,6 +88,7 @@ export default function NotesView() {
       setBody(n.body);
       setPreview(false);
       setLinkedTask(null);
+      recordRecent({ kind: "note", id: n.id, label: n.title || "Untitled note", href: `/app/notes?note=${n.id}` });
       if (n.task_id) {
         const { data } = await supabase.from("tasks").select("*").eq("id", n.task_id).maybeSingle();
         setLinkedTask((data as Task) ?? null);
@@ -93,6 +96,19 @@ export default function NotesView() {
     },
     [supabase]
   );
+
+  const togglePin = async (n: Note, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const pinning = !n.pinned_at;
+    const patch = { pinned_at: pinning ? new Date().toISOString() : null };
+    setNotes((prev) => prev.map((x) => (x.id === n.id ? { ...x, ...patch } : x)));
+    if (active?.id === n.id) setActive((prev) => (prev ? { ...prev, ...patch } : prev));
+    const { error } = await supabase.from("notes").update(patch).eq("id", n.id);
+    if (error) {
+      toast(error.message, "error");
+      load();
+    }
+  };
 
   // deep-link ?note=<id>
   useEffect(() => {
@@ -566,28 +582,26 @@ export default function NotesView() {
           </div>
         </div>
         <div className="flex-1 space-y-1 overflow-y-auto">
-          {notes.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => select(n)}
-              className={`flex w-full items-start gap-2 rounded-lg px-2 py-3 text-left md:py-2 ${
-                active?.id === n.id ? "bg-surface3" : "hover:bg-surface"
-              }`}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] md:text-sm">{n.title || "Untitled"}</div>
-                <div className="truncate text-[13px] text-txt3 md:text-xs">{n.body || "No content"}</div>
-                <div className="flex items-center gap-1.5 pt-0.5">
-                  {n.note_date && <CalendarDays className="h-3 w-3 text-accentSoft" />}
-                  {n.task_id && <CheckSquare className="h-3 w-3 text-accentSoft" />}
-                  {n.event_id && <Link2 className="h-3 w-3 text-accentSoft" />}
-                  {n.ink && ((n.ink.strokes?.length ?? 0) > 0) && (
-                    <PenLine className="h-3 w-3 text-accentSoft" />
-                  )}
-                </div>
+          {notes.filter((n) => n.pinned_at).length > 0 && (
+            <>
+              <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-txt3">
+                <Star className="h-3 w-3" /> Pinned
               </div>
-            </button>
-          ))}
+              {notes
+                .filter((n) => n.pinned_at)
+                .map((n) => (
+                  <NoteRow key={n.id} note={n} active={active?.id === n.id} onSelect={() => select(n)} onTogglePin={(e) => togglePin(n, e)} />
+                ))}
+              <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-txt3">
+                All notes
+              </div>
+            </>
+          )}
+          {notes
+            .filter((n) => !n.pinned_at)
+            .map((n) => (
+              <NoteRow key={n.id} note={n} active={active?.id === n.id} onSelect={() => select(n)} onTogglePin={(e) => togglePin(n, e)} />
+            ))}
           {notes.length === 0 && (
             <p className="px-2 py-6 text-center text-xs text-txt3">No notes yet.</p>
           )}
@@ -824,6 +838,49 @@ export default function NotesView() {
         )}
       </section>
     </div>
+  );
+}
+
+function NoteRow({
+  note,
+  active,
+  onSelect,
+  onTogglePin,
+}: {
+  note: Note;
+  active: boolean;
+  onSelect: () => void;
+  onTogglePin: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      className={`group relative flex w-full items-start gap-2 rounded-lg px-2 py-3 pr-10 text-left md:py-2 ${
+        active ? "bg-surface3" : "hover:bg-surface"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[15px] md:text-sm">{note.title || "Untitled"}</div>
+        <div className="truncate text-[13px] text-txt3 md:text-xs">{note.body || "No content"}</div>
+        <div className="flex items-center gap-1.5 pt-0.5">
+          {note.note_date && <CalendarDays className="h-3 w-3 text-accentSoft" />}
+          {note.task_id && <CheckSquare className="h-3 w-3 text-accentSoft" />}
+          {note.event_id && <Link2 className="h-3 w-3 text-accentSoft" />}
+          {note.ink && (note.ink.strokes?.length ?? 0) > 0 && <PenLine className="h-3 w-3 text-accentSoft" />}
+        </div>
+      </div>
+      <span
+        onClick={onTogglePin}
+        role="button"
+        aria-label={note.pinned_at ? "Unpin" : "Pin"}
+        title={note.pinned_at ? "Unpin" : "Pin to top"}
+        className={`absolute right-1 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg active:bg-surface2 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100 ${
+          note.pinned_at ? "text-accent md:opacity-100" : "text-txt3"
+        }`}
+      >
+        <Star className="h-3.5 w-3.5" fill={note.pinned_at ? "currentColor" : "none"} />
+      </span>
+    </button>
   );
 }
 
