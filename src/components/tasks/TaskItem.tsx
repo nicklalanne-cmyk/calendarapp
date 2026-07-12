@@ -212,8 +212,10 @@ export default function TaskItem({
           </div>
         </div>
 
-        {/* actions — desktop only here; fixed cluster, floats over the meta row on hover so nothing collides */}
-        <div className="ml-auto hidden shrink-0 items-center gap-0.5 rounded-md pl-1 transition md:flex md:bg-surface md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+        {/* actions — desktop only, absolutely positioned so they overlay on hover instead of
+            permanently reserving layout width (which was crushing the title column even while
+            the icons were invisible) */}
+        <div className="pointer-events-none absolute right-1 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded-md bg-surface pl-1 opacity-0 shadow-sm transition md:flex md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100">
           <button
             onClick={() => onSchedule(task)}
             title="Add to calendar"

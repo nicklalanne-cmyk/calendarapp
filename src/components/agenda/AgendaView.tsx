@@ -21,6 +21,7 @@ import {
 import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskModal, { type TaskDraft } from "@/components/tasks/TaskModal";
 import { runTaskCompletedAutomations, runEventCreatedAutomations, applyConditionalAutomations } from "@/lib/automations";
+import { useSettings } from "@/components/SettingsProvider";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 
@@ -44,6 +45,18 @@ export default function AgendaView() {
   const [mode, setMode] = useState<"day" | "week">("day");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const touchX = useRef<number | null>(null);
+  const { settings } = useSettings();
+  const appliedDefaultMode = useRef(false);
+
+  // apply the user's preferred default Agenda view once settings load,
+  // without stomping on a mode switch they've already made this session
+  useEffect(() => {
+    if (appliedDefaultMode.current) return;
+    if (settings.agenda_view === "day" || settings.agenda_view === "week") {
+      setMode(settings.agenda_view);
+      appliedDefaultMode.current = true;
+    }
+  }, [settings.agenda_view]);
 
   const strip = useMemo(() => {
     const s0 = startOfWeek(anchor);
@@ -502,7 +515,7 @@ export default function AgendaView() {
 
         {emptyDay && horizontal && <div className="py-2 text-xs text-txt3">Nothing scheduled</div>}
 
-        <div className="divide-y divide-txt3/20">
+        <div className="divide-y divide-txt3/10">
         {dayTasks.map((t) => (
           <TaskRow
             key={t.id}
@@ -834,11 +847,11 @@ export default function AgendaView() {
           {mode === "week" ? (
             <>
               {weekLongTasks.length > 0 && (
-                <div className="border-b border-txt3/20 px-4 pb-3 pt-4 md:px-6 md:pt-6">
+                <div className="border-b border-txt3/10 px-4 pb-3 pt-4 md:px-6 md:pt-6">
                   <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-txt3">
                     This week
                   </p>
-                  <div className="divide-y divide-txt3/20 rounded-lg border border-txt3/20">
+                  <div className="divide-y divide-txt3/10 rounded-lg border border-txt3/10">
                     {weekLongTasks.map((t) => (
                       <TaskRow key={t.id} t={t} />
                     ))}
@@ -846,7 +859,7 @@ export default function AgendaView() {
                 </div>
               )}
               {/* mobile: stays a vertical, one-day-at-a-time list */}
-              <div className="mx-auto max-w-3xl divide-y divide-txt3/20 p-4 md:hidden">
+              <div className="mx-auto max-w-3xl divide-y divide-txt3/10 p-4 md:hidden">
                 {days.map((day) => renderDayCell(day, false))}
               </div>
               {/* desktop: 7 columns side by side, so the whole week is visible at once.
@@ -859,7 +872,7 @@ export default function AgendaView() {
                     key={day.toISOString()}
                     className={clsx(
                       "w-[220px] shrink-0",
-                      i < days.length - 1 && "border-r border-txt3/20 pr-3"
+                      i < days.length - 1 && "my-2 border-r border-txt3/10 pr-3"
                     )}
                   >
                     {renderDayCell(day, true)}

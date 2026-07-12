@@ -16,6 +16,11 @@ const VIEWS = [
   { id: "month", label: "Month" },
 ] as const;
 
+const AGENDA_VIEWS = [
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+] as const;
+
 const PAGES = [
   { href: "/app", label: "Planner", icon: CalendarDays, hint: "Calendar + tasks side by side" },
   { href: "/app/agenda", label: "Agenda", icon: CalendarRange, hint: "A scrolling list of what's next" },
@@ -75,6 +80,30 @@ export default function SettingsView() {
                 className={clsx(
                   "flex-1 rounded-lg border px-3 py-2 text-sm transition",
                   settings.default_view === v.id
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-border text-txt2 hover:bg-surface2"
+                )}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
+          <h2 className="text-sm font-semibold">Default Agenda view</h2>
+          <p className="mb-3 text-xs text-txt3">Which view Agenda opens in.</p>
+          <div className="flex gap-2">
+            {AGENDA_VIEWS.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => {
+                  update({ agenda_view: v.id });
+                  flash();
+                }}
+                className={clsx(
+                  "flex-1 rounded-lg border px-3 py-2 text-sm transition",
+                  settings.agenda_view === v.id
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-border text-txt2 hover:bg-surface2"
                 )}
