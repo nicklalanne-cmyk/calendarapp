@@ -96,7 +96,7 @@ export default function DateCellMenu({
             ? done
               ? "text-success"
               : "text-accent"
-            : "text-txt3 opacity-60 hover:bg-surface2 md:opacity-0 md:group-hover:opacity-100"
+            : "text-txt3 opacity-60 hover:bg-surface2 md:opacity-30 md:group-hover:opacity-100"
         )}
       >
         {busy ? (

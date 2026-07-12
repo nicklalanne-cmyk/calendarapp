@@ -137,7 +137,7 @@ export function TableView(v: ViewProps) {
                             <button
                               onClick={() => v.onOpenRecord(r)}
                               title="Open record"
-                              className="shrink-0 rounded p-0.5 text-txt3 opacity-0 hover:text-txt group-hover:opacity-100"
+                              className="shrink-0 rounded p-0.5 text-txt3 opacity-30 transition-opacity hover:text-txt group-hover:opacity-100"
                             >
                               <GripVertical className="h-3.5 w-3.5" />
                             </button>

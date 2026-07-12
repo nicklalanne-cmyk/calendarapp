@@ -94,6 +94,12 @@ export default function EventModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.id]);
 
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
+
   const build = (base: Date, hhmm: string) => {
     const [h, m] = hhmm.split(":").map(Number);
     const d = new Date(base);

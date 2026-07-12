@@ -7,7 +7,6 @@ import {
   CalendarDays,
   CalendarRange,
   StickyNote,
-  Plus,
   LogOut,
   Link2,
   Sun,
@@ -174,11 +173,11 @@ export default function AppShell({
           );
         })}
         <button
-          title="Quick add (⌘K)"
+          title="Search & quick add (⌘K)"
           onClick={() => setCmdOpen(true)}
           className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl text-txt3 transition hover:bg-surface hover:text-txt"
         >
-          <Plus className="h-5 w-5" />
+          <Search className="h-5 w-5" />
         </button>
         <button
           title="Ask Cadence (⌘J)"

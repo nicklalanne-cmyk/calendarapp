@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Clock } from "lucide-react";
 import clsx from "clsx";
 import type { Task } from "@/lib/types";
@@ -34,6 +34,12 @@ export default function ScheduleSheet({
     `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
   );
   const [mins, setMins] = useState(task.estimate_minutes || 60);
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
 
   const go = () => {
     const start = new Date(`${date}T${time}:00`);

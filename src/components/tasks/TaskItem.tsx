@@ -87,7 +87,7 @@ export default function TaskItem({
         }}
         className="group relative flex items-center gap-2 rounded-lg border border-transparent py-2.5 pl-1 pr-1 hover:border-border hover:bg-surface md:py-1.5"
       >
-        <GripVertical className="hidden h-3.5 w-3.5 shrink-0 cursor-grab text-txt3 opacity-0 group-hover:opacity-100 md:block" />
+        <GripVertical className="hidden h-3.5 w-3.5 shrink-0 cursor-grab text-txt3 opacity-30 transition-opacity group-hover:opacity-100 md:block" />
 
         <button
           onClick={() => onToggle(task)}

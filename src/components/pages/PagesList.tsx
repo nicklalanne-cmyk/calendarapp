@@ -256,7 +256,7 @@ function PageCard({
         role="button"
         aria-label={page.pinned_at ? "Unpin" : "Pin"}
         title={page.pinned_at ? "Unpin" : "Pin to top"}
-        className={`absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-lg active:bg-surface2 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100 ${
+        className={`absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
           page.pinned_at ? "text-accent md:opacity-100" : "text-txt3"
         }`}
       >

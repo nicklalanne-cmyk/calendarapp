@@ -612,7 +612,7 @@ export default function NotesView() {
         className={`${active ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden p-4 md:p-6`}
       >
         {active ? (
-          <>
+          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-1 flex-col overflow-hidden">
             <div className="mb-2 flex items-center gap-2">
               <button
                 onClick={() => setActive(null)}
@@ -830,7 +830,7 @@ export default function NotesView() {
                 Updated {format(new Date(active.updated_at), "MMM d, h:mm a")}
               </span>
             </div>
-          </>
+          </div>
         ) : (
           <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-txt3">
             Select a note, or create one.
@@ -874,7 +874,7 @@ function NoteRow({
         role="button"
         aria-label={note.pinned_at ? "Unpin" : "Pin"}
         title={note.pinned_at ? "Unpin" : "Pin to top"}
-        className={`absolute right-1 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg active:bg-surface2 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100 ${
+        className={`absolute right-1 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
           note.pinned_at ? "text-accent md:opacity-100" : "text-txt3"
         }`}
       >
