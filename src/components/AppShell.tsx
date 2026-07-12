@@ -20,6 +20,8 @@ import {
   Inbox,
   Search,
   X,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
 import Reminders from "@/components/Reminders";
@@ -45,11 +47,29 @@ export default function AppShell({
   const [feedback, setFeedback] = useState(false);
   const { isAdmin, openCount } = useAdminInbox();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [railExpanded, setRailExpanded] = useState(false);
 
   useEffect(() => {
     const t = (document.documentElement.getAttribute("data-theme") as "dark" | "light") || "dark";
     setTheme(t);
+    try {
+      setRailExpanded(localStorage.getItem("cadence-rail-expanded") === "1");
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  const toggleRail = () => {
+    setRailExpanded((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("cadence-rail-expanded", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   // Mobile keyboards resizing the layout viewport (instead of just overlaying it) is what
   // caused the notes editor to look "frozen"/glitched: the shell was pinned to 100svh, and
@@ -98,14 +118,15 @@ export default function AppShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // desktop rail shows everything; the phone's bottom bar shows the first four
+  // desktop rail nav; the phone's bottom bar shows the same first four.
+  // Calendars now lives in Settings, and Search/Assistant moved to the
+  // top-right utility bar, so the rail itself only has to hold the pages.
   const nav = [
     { href: "/app", label: "Planner", icon: CalendarDays },
     { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
     { href: "/app/notes", label: "Notes", icon: StickyNote },
     { href: "/app/pages", label: "Pages", icon: Table2 },
     { href: "/app/focus", label: "Focus", icon: Timer },
-    { href: "/app/accounts", label: "Calendars", icon: Link2 },
   ];
   const mobileNav = [nav[0], nav[1], nav[2], nav[3]]; // Planner, Agenda, Notes, Pages
 
@@ -122,24 +143,18 @@ export default function AppShell({
   const newNote = () => router.push("/app/notes?new=1");
   const voiceMemo = () => router.push("/app/notes?record=1");
 
-  const ThemeButton = (
-    <button
-      onClick={toggleTheme}
-      title={theme === "dark" ? "Switch to light" : "Switch to dark"}
-      className="flex h-10 w-10 items-center justify-center rounded-xl text-txt3 transition hover:bg-surface hover:text-txt"
-    >
-      {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-    </button>
-  );
-
   const SignOut = (
     <form action="/auth/signout" method="post">
       <button
         type="submit"
-        title="Sign out"
-        className="flex h-10 w-10 items-center justify-center rounded-xl text-txt3 transition hover:bg-surface hover:text-danger"
+        title={railExpanded ? undefined : "Sign out"}
+        className={clsx(
+          "flex h-10 items-center rounded-xl text-txt3 transition hover:bg-surface hover:text-danger",
+          railExpanded ? "w-full gap-3 px-3" : "w-10 justify-center"
+        )}
       >
-        <LogOut className="h-5 w-5" />
+        <LogOut className="h-5 w-5 shrink-0" />
+        {railExpanded && <span className="truncate text-sm">Sign out</span>}
       </button>
     </form>
   );
@@ -150,10 +165,35 @@ export default function AppShell({
       style={{ height: "var(--app-height, 100svh)" }}
     >
       {/* ---------------- desktop rail ---------------- */}
-      <nav className="hidden w-16 shrink-0 flex-col items-center gap-1 border-r border-border py-4 md:flex">
-        <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-xl bg-accent/20 text-accent">
-          <CalendarDays className="h-5 w-5" />
+      <nav
+        className={clsx(
+          "hidden shrink-0 flex-col gap-1 border-r border-border py-4 transition-[width] duration-150 md:flex",
+          railExpanded ? "w-56 items-stretch px-2" : "w-16 items-center"
+        )}
+      >
+        <div className={clsx("mb-1 flex items-center gap-2", railExpanded ? "px-1" : "justify-center")}>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent">
+            <CalendarDays className="h-5 w-5" />
+          </div>
+          {railExpanded && <span className="truncate text-sm font-semibold">Cadence</span>}
         </div>
+
+        <button
+          onClick={toggleRail}
+          title={railExpanded ? "Collapse sidebar" : "Expand sidebar"}
+          className={clsx(
+            "mb-3 flex h-9 items-center rounded-lg text-txt3 transition hover:bg-surface hover:text-txt",
+            railExpanded ? "w-full gap-3 px-3" : "w-9 justify-center"
+          )}
+        >
+          {railExpanded ? (
+            <PanelLeftClose className="h-4 w-4 shrink-0" />
+          ) : (
+            <PanelLeftOpen className="h-4 w-4 shrink-0" />
+          )}
+          {railExpanded && <span className="truncate text-xs">Collapse</span>}
+        </button>
+
         {nav.map((n) => {
           const active =
             n.href === "/app" ? pathname === "/app" : pathname.startsWith(n.href);
@@ -162,48 +202,41 @@ export default function AppShell({
             <Link
               key={n.href}
               href={n.href}
-              title={n.label}
+              title={railExpanded ? undefined : n.label}
               className={clsx(
-                "flex h-11 w-11 items-center justify-center rounded-xl transition",
+                "flex h-11 items-center rounded-xl transition",
+                railExpanded ? "w-full gap-3 px-3" : "w-11 justify-center",
                 active ? "bg-surface3 text-txt" : "text-txt3 hover:bg-surface hover:text-txt"
               )}
             >
-              <Icon className="h-5 w-5" />
+              <Icon className="h-5 w-5 shrink-0" />
+              {railExpanded && <span className="truncate text-sm">{n.label}</span>}
             </Link>
           );
         })}
-        <button
-          title="Search & quick add (⌘K)"
-          onClick={() => setCmdOpen(true)}
-          className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl text-txt3 transition hover:bg-surface hover:text-txt"
-        >
-          <Search className="h-5 w-5" />
-        </button>
-        <button
-          title="Ask Cadence (⌘J)"
-          onClick={() => setAiOpen(true)}
-          className={clsx(
-            "flex h-11 w-11 items-center justify-center rounded-xl transition",
-            aiOpen ? "bg-accent/20 text-accent" : "text-txt3 hover:bg-surface hover:text-accent"
-          )}
-        >
-          <Sparkles className="h-5 w-5" />
-        </button>
-        <div className="mt-auto flex flex-col items-center gap-1">
+
+        <div className={clsx("mt-auto flex flex-col gap-1", railExpanded ? "items-stretch" : "items-center")}>
           {isAdmin && (
             <Link
               href="/app/feedback"
-              title={`Feedback inbox${openCount ? ` — ${openCount} open` : ""}`}
+              title={railExpanded ? undefined : `Feedback inbox${openCount ? ` — ${openCount} open` : ""}`}
               className={clsx(
-                "relative flex h-10 w-10 items-center justify-center rounded-xl transition",
+                "relative flex h-10 items-center rounded-xl transition",
+                railExpanded ? "w-full gap-3 px-3" : "w-10 justify-center",
                 pathname === "/app/feedback"
                   ? "bg-surface3 text-txt"
                   : "text-txt3 hover:bg-surface hover:text-txt"
               )}
             >
-              <Inbox className="h-5 w-5" />
+              <Inbox className="h-5 w-5 shrink-0" />
+              {railExpanded && <span className="truncate text-sm">Feedback inbox</span>}
               {openCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white">
+                <span
+                  className={clsx(
+                    "flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white",
+                    railExpanded ? "ml-auto" : "absolute -right-0.5 -top-0.5"
+                  )}
+                >
                   {openCount > 9 ? "9+" : openCount}
                 </span>
               )}
@@ -211,36 +244,67 @@ export default function AppShell({
           )}
           <button
             onClick={() => setFeedback(true)}
-            title="Report a bug or request a feature"
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-txt3 transition hover:bg-surface hover:text-accent"
+            title={railExpanded ? undefined : "Report a bug or request a feature"}
+            className={clsx(
+              "flex h-10 items-center rounded-xl text-txt3 transition hover:bg-surface hover:text-accent",
+              railExpanded ? "w-full gap-3 px-3" : "w-10 justify-center"
+            )}
           >
-            <MessageSquarePlus className="h-5 w-5" />
+            <MessageSquarePlus className="h-5 w-5 shrink-0" />
+            {railExpanded && <span className="truncate text-sm">Report</span>}
           </button>
           <Link
             href="/app/settings"
-            title="Settings"
+            title={railExpanded ? undefined : "Settings"}
             className={clsx(
-              "flex h-10 w-10 items-center justify-center rounded-xl transition",
+              "flex h-10 items-center rounded-xl transition",
+              railExpanded ? "w-full gap-3 px-3" : "w-10 justify-center",
               pathname === "/app/settings"
                 ? "bg-surface3 text-txt"
                 : "text-txt3 hover:bg-surface hover:text-txt"
             )}
           >
-            <Settings className="h-5 w-5" />
+            <Settings className="h-5 w-5 shrink-0" />
+            {railExpanded && <span className="truncate text-sm">Settings</span>}
           </Link>
-          <Reminders />
-          {ThemeButton}
           <div
-            title={email}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-surface3 text-xs font-semibold uppercase text-txt2"
+            title={railExpanded ? undefined : email}
+            className={clsx(
+              "flex h-10 items-center rounded-xl",
+              railExpanded ? "w-full gap-3 px-3" : "w-10 justify-center"
+            )}
           >
-            {email.slice(0, 1) || "?"}
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface3 text-xs font-semibold uppercase text-txt2">
+              {email.slice(0, 1) || "?"}
+            </div>
+            {railExpanded && <span className="min-w-0 flex-1 truncate text-xs text-txt3">{email}</span>}
           </div>
           {SignOut}
         </div>
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* ---------------- desktop utility bar: search + assistant, always top-right ---------------- */}
+        <div className="hidden h-12 shrink-0 items-center justify-end gap-1 border-b border-border px-3 md:flex">
+          <button
+            onClick={() => setCmdOpen(true)}
+            title="Search & quick add (⌘K)"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-txt3 transition hover:bg-surface hover:text-txt"
+          >
+            <Search className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            onClick={() => setAiOpen((v) => !v)}
+            title="Ask Cadence (⌘J)"
+            className={clsx(
+              "flex h-9 w-9 items-center justify-center rounded-lg transition",
+              aiOpen ? "bg-accent/20 text-accent" : "text-txt3 hover:bg-surface hover:text-accent"
+            )}
+          >
+            <Sparkles className="h-[18px] w-[18px]" />
+          </button>
+        </div>
+
         {/* ---------------- mobile header ---------------- */}
         <header className="flex h-14 shrink-0 items-center gap-2 px-3 md:hidden">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/20 text-accent">

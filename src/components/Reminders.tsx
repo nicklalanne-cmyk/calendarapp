@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Bell, BellOff, Loader2 } from "lucide-react";
+import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 
@@ -12,7 +13,7 @@ function urlBase64ToUint8Array(base64: string) {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
-export default function Reminders() {
+export default function Reminders({ variant = "icon" }: { variant?: "icon" | "row" }) {
   const supabase = createClient();
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -106,6 +107,31 @@ export default function Reminders() {
       setBusy(false);
     }
   }, []);
+
+  if (variant === "row") {
+    return (
+      <button
+        role="switch"
+        aria-checked={on}
+        onClick={() => (on ? disable() : enable())}
+        disabled={busy}
+        className={clsx(
+          "relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition disabled:opacity-50",
+          on ? "bg-accent" : "bg-surface3"
+        )}
+      >
+        <span className="absolute inset-0 flex items-center justify-center">
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />}
+        </span>
+        <span
+          className={clsx(
+            "absolute top-1 h-5 w-5 rounded-full bg-white transition-all",
+            on ? "left-6" : "left-1"
+          )}
+        />
+      </button>
+    );
+  }
 
   return (
     <button

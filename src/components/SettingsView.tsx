@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2 } from "lucide-react";
+import Link from "next/link";
+import {
+  CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2,
+  Bell, ChevronRight,
+} from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
+import Reminders from "@/components/Reminders";
 
 const VIEWS = [
   { id: "day", label: "Day" },
@@ -153,7 +158,7 @@ export default function SettingsView() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-surface p-4">
+        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
           <h2 className="text-sm font-semibold">Appearance</h2>
           <p className="mb-3 text-xs text-txt3">This one is saved on this device.</p>
           <div className="flex gap-2">
@@ -172,6 +177,37 @@ export default function SettingsView() {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+                <Bell className="h-4 w-4" /> Notifications
+              </h2>
+              <p className="mt-1 text-xs text-txt3">
+                Background reminders that arrive even when Cadence is closed.
+              </p>
+            </div>
+            <Reminders variant="row" />
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border bg-surface p-4">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <Link2 className="h-4 w-4" /> Calendars
+          </h2>
+          <p className="mb-3 text-xs text-txt3">
+            Connect or manage the Google accounts Cadence syncs with.
+          </p>
+          <Link
+            href="/app/accounts"
+            className="flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-left transition hover:bg-surface2"
+          >
+            <Link2 className="h-4 w-4 shrink-0 text-txt3" />
+            <span className="min-w-0 flex-1 text-sm text-txt">Connected calendars</span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-txt3" />
+          </Link>
         </section>
 
         {!ready && <p className="mt-4 text-xs text-txt3">Loading your settings…</p>}
