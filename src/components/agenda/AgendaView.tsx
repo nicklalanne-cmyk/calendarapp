@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format, isSameDay, parseISO } from "date-fns";
 import {
   Check, MapPin, Flag, Video, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  ListTodo, X, Loader2, Users, Plus, ArrowUpRight,
+  ListTodo, X, Loader2, Users, Plus, ArrowUpRight, PanelRightClose, PanelRightOpen,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
@@ -42,6 +42,7 @@ export default function AgendaView() {
   const [tasksOpen, setTasksOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [mode, setMode] = useState<"day" | "week">("day");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const touchX = useRef<number | null>(null);
 
   const strip = useMemo(() => {
@@ -483,38 +484,40 @@ export default function AgendaView() {
                 : undefined
             }
             className={clsx(
-              "flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
+              "flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
               mode === "week" && "cursor-grab active:cursor-grabbing"
             )}
           >
-            <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
-              {e.allDay ? "All day" : fmtTime(parseISO(e.start))}
-            </span>
-            <span
-              className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-              style={{ background: e.color ?? "#56A8F0" }}
-            />
-            <div className="min-w-0 flex-1">
-              <div className={clsx("text-[15px] text-txt md:text-sm", titleCls)}>{e.title}</div>
-              <div className="flex items-center gap-3 text-[11px] text-txt3">
-                {e.location && (
-                  <span className="flex min-w-0 items-center gap-1">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    <span className={titleCls}>{e.location}</span>
-                  </span>
-                )}
-                {e.meetingLink && (
-                  <a
-                    href={e.meetingLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(ev) => ev.stopPropagation()}
-                    className="flex shrink-0 items-center gap-1 text-accentSoft hover:underline"
-                  >
-                    <Video className="h-3 w-3" /> Join
-                  </a>
-                )}
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex min-w-0 items-start gap-2">
+                <span
+                  className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: e.color ?? "#56A8F0" }}
+                />
+                <span className={clsx("text-[15px] text-txt md:text-sm", titleCls)}>{e.title}</span>
               </div>
+              <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
+                {e.allDay ? "All day" : fmtTime(parseISO(e.start))}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 pl-4 text-[11px] text-txt3">
+              {e.location && (
+                <span className="flex min-w-0 items-center gap-1">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className={titleCls}>{e.location}</span>
+                </span>
+              )}
+              {e.meetingLink && (
+                <a
+                  href={e.meetingLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(ev) => ev.stopPropagation()}
+                  className="flex shrink-0 items-center gap-1 text-accentSoft hover:underline"
+                >
+                  <Video className="h-3 w-3" /> Join
+                </a>
+              )}
             </div>
           </div>
         ))}
@@ -522,18 +525,22 @@ export default function AgendaView() {
         {daySharedEvents.map((e) => (
           <div
             key={`shared:${e.id}`}
-            className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5"
+            className="flex flex-col gap-0.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5"
             title="Shared with you by your partner"
           >
-            <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
-              {e.all_day ? "All day" : fmtTime(parseISO(e.start_at))}
-            </span>
-            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accentSoft" />
-            <div className="min-w-0 flex-1">
-              <div className={clsx("flex items-center gap-1.5 text-[15px] text-txt md:text-sm", titleCls)}>
-                <span className={titleCls}>{e.title}</span>
-                <Users className="h-3 w-3 shrink-0 text-accentSoft" />
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex min-w-0 items-start gap-2">
+                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accentSoft" />
+                <span className={clsx("flex items-center gap-1.5 text-[15px] text-txt md:text-sm", titleCls)}>
+                  <span className={titleCls}>{e.title}</span>
+                  <Users className="h-3 w-3 shrink-0 text-accentSoft" />
+                </span>
               </div>
+              <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
+                {e.all_day ? "All day" : fmtTime(parseISO(e.start_at))}
+              </span>
+            </div>
+            <div className="pl-4">
               {e.location && (
                 <div className="flex items-center gap-1 text-[11px] text-txt3">
                   <MapPin className="h-3 w-3 shrink-0" />
@@ -549,7 +556,16 @@ export default function AgendaView() {
 
   const taskPanel = (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
-      <p className="text-[11px] uppercase tracking-wide text-txt3">Your open tasks</p>
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-wide text-txt3">Your open tasks</p>
+        <button
+          onClick={() => setSidebarOpen(false)}
+          title="Collapse"
+          className="hidden rounded p-1 text-txt3 hover:bg-surface2 hover:text-txt lg:block"
+        >
+          <PanelRightClose className="h-3.5 w-3.5" />
+        </button>
+      </div>
       <Bucket title="Overdue" count={overdue.length} danger>
         {overdue.map((t) => (
           <TaskRow key={t.id} t={t} showDue />
@@ -587,20 +603,24 @@ export default function AgendaView() {
             >
               <ChevronsLeft className="h-4 w-4" />
             </button>
-            <button
-              onClick={() => shift(-1)}
-              title="Previous day"
-              className="rounded-md p-1 text-txt3 hover:bg-surface hover:text-txt"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => shift(1)}
-              title="Next day"
-              className="rounded-md p-1 text-txt3 hover:bg-surface hover:text-txt"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
+            {mode === "day" && (
+              <>
+                <button
+                  onClick={() => shift(-1)}
+                  title="Previous day"
+                  className="rounded-md p-1 text-txt3 hover:bg-surface hover:text-txt"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => shift(1)}
+                  title="Next day"
+                  className="rounded-md p-1 text-txt3 hover:bg-surface hover:text-txt"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </>
+            )}
             <button
               onClick={() => shiftWeek(1)}
               title="Next week"
@@ -744,15 +764,23 @@ export default function AgendaView() {
 
         <div
           className="min-h-0 flex-1 overflow-y-auto"
-          onTouchStart={(e) => {
-            touchX.current = e.touches[0].clientX;
-          }}
-          onTouchEnd={(e) => {
-            if (touchX.current == null) return;
-            const dx = e.changedTouches[0].clientX - touchX.current;
-            if (Math.abs(dx) > 60) shiftWeek(dx < 0 ? 1 : -1);
-            touchX.current = null;
-          }}
+          onTouchStart={
+            mode === "day"
+              ? (e) => {
+                  touchX.current = e.touches[0].clientX;
+                }
+              : undefined
+          }
+          onTouchEnd={
+            mode === "day"
+              ? (e) => {
+                  if (touchX.current == null) return;
+                  const dx = e.changedTouches[0].clientX - touchX.current;
+                  if (Math.abs(dx) > 60) shiftWeek(dx < 0 ? 1 : -1);
+                  touchX.current = null;
+                }
+              : undefined
+          }
         >
           {mode === "week" ? (
             <>
@@ -780,10 +808,25 @@ export default function AgendaView() {
         </div>
       </div>
 
-      {/* task sidebar — always on wide screens, drawer on small */}
-      <aside className="hidden w-[300px] shrink-0 border-l border-border lg:block">
-        {taskPanel}
-      </aside>
+      {/* task sidebar — collapsible on wide screens, drawer on small */}
+      {sidebarOpen ? (
+        <aside className="hidden w-[300px] shrink-0 border-l border-border lg:block">
+          {taskPanel}
+        </aside>
+      ) : (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          title="Show your open tasks"
+          className="hidden w-8 shrink-0 flex-col items-center gap-2 border-l border-border py-3 text-txt3 hover:bg-surface2 hover:text-txt lg:flex"
+        >
+          <PanelRightOpen className="h-3.5 w-3.5" />
+          {overdue.length + inRange.length + unscheduled.length > 0 && (
+            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-medium text-white">
+              {overdue.length + inRange.length + unscheduled.length}
+            </span>
+          )}
+        </button>
+      )}
 
       {tasksOpen && (
         <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setTasksOpen(false)}>
