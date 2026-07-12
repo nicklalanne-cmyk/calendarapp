@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Pen, Highlighter, Eraser, Lasso, Undo2, Redo2, Trash2, ZoomIn, ZoomOut,
-  Minus, Square, Circle, Type, ImagePlus, Plus,
+  Minus, Square, Circle, Type, ImagePlus, Plus, Copy, ClipboardPaste,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -110,6 +110,11 @@ export default function NotebookCanvas({
   // pinch-to-zoom: tracks up to two simultaneous touch pointers
   const touches = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinch = useRef<{ dist: number; zoom: number; midX: number; midY: number; sl: number; st: number } | null>(null);
+  // coalesces zoom state updates to at most one per animation frame — each
+  // change resizes/redraws three canvases, so applying every raw touchmove
+  // synchronously is what makes pinch feel laggy
+  const pinchFrame = useRef<number | null>(null);
+  const pinchPending = useRef<{ zoom: number; dx: number; dy: number } | null>(null);
 
   const [tool, setTool] = useState<NotebookTool>("pen");
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0]);
@@ -117,6 +122,7 @@ export default function NotebookCanvas({
   const [hlColor, setHlColor] = useState<string>(HIGHLIGHTER_COLORS[0]);
   const [hlSize, setHlSize] = useState(HIGHLIGHTER_SIZES[1]);
   const [eraserSize, setEraserSize] = useState(18);
+  const [eraseLayer, setEraseLayer] = useState<"auto" | "pen" | "highlighter">("auto");
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [fitScale, setFitScale] = useState(1);
@@ -247,10 +253,16 @@ export default function NotebookCanvas({
     (e.pointerType === "pen" && (e.buttons & 2) !== 0);
 
   const eraseAt = (x: number, y: number) => {
-    // layer priority: if any highlighter strokes are touched, erase only
-    // those this pass (matches GoodNotes — highlight erases before ink)
-    const hlHit = strokes.current.some((s) => s.tool === "highlighter" && hitsStroke(s, x, y, eraserSize));
-    const targetTool: Stroke["tool"] | null = hlHit ? "highlighter" : null;
+    let targetTool: Stroke["tool"] | null;
+    if (eraseLayer !== "auto") {
+      // explicit layer lock — only that tool's strokes are ever touched
+      targetTool = eraseLayer;
+    } else {
+      // layer priority: if any highlighter strokes are touched, erase only
+      // those this pass (matches GoodNotes — highlight erases before ink)
+      const hlHit = strokes.current.some((s) => s.tool === "highlighter" && hitsStroke(s, x, y, eraserSize));
+      targetTool = hlHit ? "highlighter" : null;
+    }
 
     let changed = false;
     const next: Stroke[] = [];
@@ -354,6 +366,7 @@ export default function NotebookCanvas({
     }
 
     if (tool === "select") {
+      if (e.pointerType === "touch") e.preventDefault();
       if (selected.size > 0) {
         // dragging starts only if the pointer comes down inside the current
         // selection's bounds — otherwise it's a fresh lasso, and this one clears.
@@ -369,6 +382,7 @@ export default function NotebookCanvas({
       }
       lassoPoints.current = [[x, y]];
       setSelected(new Set());
+      liveCtxRef.current = setupCanvas(liveRef.current);
       return;
     }
 
@@ -397,16 +411,25 @@ export default function NotebookCanvas({
     if (e.pointerType === "touch" && touches.current.has(e.pointerId)) {
       touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touches.current.size === 2 && pinch.current) {
+        e.preventDefault();
         const pts = [...touches.current.values()];
         const [a, b] = pts;
         const d = dist(a.x, a.y, b.x, b.y);
         const nextZoom = Math.min(4, Math.max(0.3, pinch.current.zoom * (d / pinch.current.dist)));
-        setZoom(+nextZoom.toFixed(2));
-        if (scrollRef.current) {
-          const dx = (a.x + b.x) / 2 - pinch.current.midX;
-          const dy = (a.y + b.y) / 2 - pinch.current.midY;
-          scrollRef.current.scrollLeft = pinch.current.sl - dx;
-          scrollRef.current.scrollTop = pinch.current.st - dy;
+        const dx = (a.x + b.x) / 2 - pinch.current.midX;
+        const dy = (a.y + b.y) / 2 - pinch.current.midY;
+        pinchPending.current = { zoom: +nextZoom.toFixed(2), dx, dy };
+        if (pinchFrame.current == null) {
+          pinchFrame.current = requestAnimationFrame(() => {
+            pinchFrame.current = null;
+            const p = pinchPending.current;
+            if (!p || !pinch.current) return;
+            setZoom(p.zoom);
+            if (scrollRef.current) {
+              scrollRef.current.scrollLeft = pinch.current.sl - p.dx;
+              scrollRef.current.scrollTop = pinch.current.st - p.dy;
+            }
+          });
         }
         return;
       }
@@ -434,6 +457,7 @@ export default function NotebookCanvas({
     const [x, y] = toPage(e);
 
     if (dragSel.current) {
+      if (e.pointerType === "touch") e.preventDefault();
       const dx = x - dragSel.current.x;
       const dy = y - dragSel.current.y;
       dragSel.current = { x, y };
@@ -447,8 +471,9 @@ export default function NotebookCanvas({
     }
 
     if (tool === "select" && lassoPoints.current.length) {
+      if (e.pointerType === "touch") e.preventDefault();
       lassoPoints.current.push([x, y]);
-      const ctx = setupCanvas(liveRef.current);
+      const ctx = liveCtxRef.current;
       if (ctx) {
         ctx.clearRect(0, 0, width, height);
         ctx.save();
@@ -493,7 +518,13 @@ export default function NotebookCanvas({
   const onPointerUp = (e: React.PointerEvent) => {
     if (e.pointerType === "touch") {
       touches.current.delete(e.pointerId);
-      if (touches.current.size < 2) pinch.current = null;
+      if (touches.current.size < 2) {
+        pinch.current = null;
+        if (pinchFrame.current != null) {
+          cancelAnimationFrame(pinchFrame.current);
+          pinchFrame.current = null;
+        }
+      }
       if (touches.current.size > 0) return;
     }
 
@@ -548,6 +579,45 @@ export default function NotebookCanvas({
     redrawBase();
     commit();
   };
+
+  /* ---------------- copy / paste ---------------- */
+  const clipboard = useRef<Stroke[]>([]);
+  const copySelected = () => {
+    if (selected.size === 0) return;
+    clipboard.current = strokes.current
+      .filter((s) => selected.has(s.id))
+      .map((s) => ({ ...s, points: s.points.map((p) => [...p] as InkPoint) }));
+    force((n) => n + 1);
+  };
+  const pasteClipboard = () => {
+    if (clipboard.current.length === 0) return;
+    const OFFSET = 24;
+    const pasted = clipboard.current.map((s) => ({
+      ...s,
+      id: uid(),
+      points: s.points.map(([px, py, p]) => [px + OFFSET, py + OFFSET, p] as InkPoint),
+    }));
+    strokes.current = [...strokes.current, ...pasted];
+    setSelected(new Set(pasted.map((s) => s.id)));
+    redrawBase();
+    commit();
+    // so a second paste offsets further rather than landing on top of the first
+    clipboard.current = pasted.map((s) => ({ ...s, points: s.points.map((p) => [...p] as InkPoint) }));
+  };
+
+  useEffect(() => {
+    if (readOnly) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (tool !== "select") return;
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      if (e.key === "c") copySelected();
+      else if (e.key === "v") pasteClipboard();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, selected]);
 
   /* ---------------- lasso resize (scale selected strokes from a corner handle) ---------------- */
   const selectionBounds = () => {
@@ -737,7 +807,30 @@ export default function NotebookCanvas({
             </>
           )}
           {tool === "eraser" && (
-            <SizePicker sizes={[12, 18, 30]} value={eraserSize} onChange={setEraserSize} />
+            <>
+              <SizePicker sizes={[12, 18, 30]} value={eraserSize} onChange={setEraserSize} />
+              <div className="ml-1 flex overflow-hidden rounded-md border border-border text-xs">
+                {(
+                  [
+                    ["auto", "Auto"],
+                    ["highlighter", "Highlight"],
+                    ["pen", "Pen"],
+                  ] as const
+                ).map(([v, label]) => (
+                  <button
+                    key={v}
+                    onClick={() => setEraseLayer(v)}
+                    title="Which layer the eraser removes"
+                    className={clsx(
+                      "px-2 py-1",
+                      eraseLayer === v ? "bg-accent font-medium text-white" : "text-txt2 hover:bg-surface2"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           {tool.startsWith("shape") && (
             <>
@@ -749,11 +842,29 @@ export default function NotebookCanvas({
             </>
           )}
           {tool === "select" && selected.size > 0 && (
+            <>
+              <button
+                onClick={copySelected}
+                title="Copy (⌘/Ctrl+C)"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-txt2 hover:bg-surface2"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copy
+              </button>
+              <button
+                onClick={deleteSelected}
+                className="flex items-center gap-1 rounded-md bg-danger/10 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/20"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete {selected.size}
+              </button>
+            </>
+          )}
+          {tool === "select" && clipboard.current.length > 0 && (
             <button
-              onClick={deleteSelected}
-              className="flex items-center gap-1 rounded-md bg-danger/10 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/20"
+              onClick={pasteClipboard}
+              title="Paste (⌘/Ctrl+V)"
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-txt2 hover:bg-surface2"
             >
-              <Trash2 className="h-3.5 w-3.5" /> Delete {selected.size}
+              <ClipboardPaste className="h-3.5 w-3.5" /> Paste
             </button>
           )}
 
