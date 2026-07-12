@@ -1,5 +1,14 @@
 export type NotebookPageTemplate = "blank" | "lined" | "grid" | "dotted" | "pdf";
 
+export type NotebookFolder = {
+  id: string;
+  user_id: string;
+  name: string;
+  color: string;
+  position: number;
+  created_at: string;
+};
+
 export type Notebook = {
   id: string;
   user_id: string;
@@ -9,6 +18,7 @@ export type Notebook = {
   position: number;
   pinned_at: string | null;
   shared: boolean;
+  folder_id: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -24,6 +34,32 @@ export type NotebookPdf = {
   created_at: string;
 };
 
+/** A text box or image dropped onto a page — kept separate from ink strokes
+ * since they're positioned/sized rectangles, not freehand point paths. */
+export type NotebookPageElement =
+  | {
+      id: string;
+      type: "text";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      rotation?: number;
+      text: string;
+      color: string;
+      fontSize: number;
+    }
+  | {
+      id: string;
+      type: "image";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      rotation?: number;
+      storagePath: string;
+    };
+
 export type NotebookPage = {
   id: string;
   notebook_id: string;
@@ -35,6 +71,7 @@ export type NotebookPage = {
   width: number;
   height: number;
   strokes: import("@/lib/ink").Stroke[];
+  elements: NotebookPageElement[];
   created_at: string;
   updated_at: string;
 };

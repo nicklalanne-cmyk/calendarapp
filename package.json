@@ -15,6 +15,7 @@
     "chrono-node": "^2.7.7",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.446.0",
     "next": "14.2.15",
     "pdfjs-dist": "^4.10.38",

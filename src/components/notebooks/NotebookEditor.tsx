@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Plus, Trash2, Copy, Loader2, FileUp, ChevronLeft, ChevronRight,
-  Menu, X, Users,
+  Menu, X, Users, Download,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
@@ -12,15 +12,16 @@ import { toast } from "@/lib/toast";
 import { makeDebouncer } from "@/lib/debounce";
 import { DEFAULT_PAGE_H, DEFAULT_PAGE_W, TEMPLATE_LABELS } from "@/lib/notebooks";
 import { loadPdfDocument, pdfPageDims, renderPdfPage } from "@/lib/notebookPdf";
-import type { Notebook, NotebookPage, NotebookPageTemplate, NotebookPdf } from "@/lib/types";
+import type { Notebook, NotebookPage, NotebookPageElement, NotebookPageTemplate, NotebookPdf } from "@/lib/types";
 import type { Stroke } from "@/lib/ink";
 import NotebookCanvas from "@/components/notebooks/NotebookCanvas";
 
-const strokesDebouncer = makeDebouncer(600);
+const saveDebouncer = makeDebouncer(600);
 
 export default function NotebookEditor({ notebookId }: { notebookId: string }) {
   const supabase = createClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [notebook, setNotebook] = useState<Notebook | null>(null);
   const [pages, setPages] = useState<NotebookPage[]>([]);
@@ -30,13 +31,16 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
   const [railOpen, setRailOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
   const [background, setBackground] = useState<HTMLCanvasElement | null>(null);
   const [isOwner, setIsOwner] = useState(true);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfDocCache = useRef<Map<string, Awaited<ReturnType<typeof loadPdfDocument>>>>(new Map());
   const bgCache = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const imageUrlCache = useRef<Map<string, string>>(new Map());
   const dragId = useRef<string | null>(null);
+  const autoImportTried = useRef(false);
 
   const active = pages.find((p) => p.id === activeId) ?? null;
 
@@ -57,6 +61,7 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
     const pl = ((pgs as NotebookPage[] | null) ?? []).map((p) => ({
       ...p,
       strokes: (p.strokes as unknown as Stroke[]) ?? [],
+      elements: (p.elements as unknown as NotebookPageElement[]) ?? [],
     }));
     setPages(pl);
     const map: Record<string, NotebookPdf> = {};
@@ -70,59 +75,136 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
     load();
   }, [load]);
 
+  // ?import=1 — set by NotebooksView when the user picked "Import a PDF" as
+  // the starting page style, so the file picker opens the moment we land here.
+  useEffect(() => {
+    if (loading || autoImportTried.current) return;
+    if (searchParams.get("import") === "1") {
+      autoImportTried.current = true;
+      setTimeout(() => fileRef.current?.click(), 200);
+    }
+  }, [loading, searchParams]);
+
+  // Resolves (and caches) the rendered background for any page — the PDF page
+  // image if it's a PDF page, or null for a template page (NotebookCanvas
+  // paints the template itself). Shared by the "show the active page" effect
+  // below and by full-notebook PDF export.
+  const loadBackgroundFor = useCallback(
+    async (page: NotebookPage): Promise<HTMLCanvasElement | null> => {
+      if (page.template !== "pdf" || page.pdf_id == null || page.pdf_page_index == null) return null;
+      const cached = bgCache.current.get(page.id);
+      if (cached) return cached;
+      try {
+        let doc = pdfDocCache.current.get(page.pdf_id);
+        if (!doc) {
+          const pdfRow = pdfs[page.pdf_id];
+          if (!pdfRow) return null;
+          const { data: signed } = await supabase.storage
+            .from("notebook-pdfs")
+            .createSignedUrl(pdfRow.storage_path, 3600);
+          if (!signed?.signedUrl) return null;
+          doc = await loadPdfDocument(signed.signedUrl);
+          pdfDocCache.current.set(page.pdf_id, doc);
+        }
+        const { canvas } = await renderPdfPage(doc, page.pdf_page_index);
+        bgCache.current.set(page.id, canvas);
+        return canvas;
+      } catch {
+        return null;
+      }
+    },
+    [supabase, pdfs]
+  );
+
   // render/cache the background for whichever page is active
   useEffect(() => {
     if (!active) {
       setBackground(null);
       return;
     }
-    if (active.template !== "pdf" || active.pdf_id == null || active.pdf_page_index == null) {
-      setBackground(null);
-      return;
-    }
-    const cacheKey = active.id;
-    const cached = bgCache.current.get(cacheKey);
-    if (cached) {
-      setBackground(cached);
-      return;
-    }
     let cancelled = false;
-    (async () => {
-      try {
-        let doc = pdfDocCache.current.get(active.pdf_id!);
-        if (!doc) {
-          const pdfRow = pdfs[active.pdf_id!];
-          if (!pdfRow) return;
-          const { data: signed } = await supabase.storage
-            .from("notebook-pdfs")
-            .createSignedUrl(pdfRow.storage_path, 3600);
-          if (!signed?.signedUrl) return;
-          doc = await loadPdfDocument(signed.signedUrl);
-          pdfDocCache.current.set(active.pdf_id!, doc);
-        }
-        const { canvas } = await renderPdfPage(doc, active.pdf_page_index!);
-        if (cancelled) return;
-        bgCache.current.set(cacheKey, canvas);
-        setBackground(canvas);
-      } catch (err) {
-        if (!cancelled) toast("Couldn't render that PDF page", "error");
-      }
-    })();
+    loadBackgroundFor(active).then((canvas) => {
+      if (!cancelled) setBackground(canvas);
+    });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.id, active?.pdf_id, active?.pdf_page_index, pdfs]);
+  }, [active, loadBackgroundFor]);
+
+  const resolveImageUrl = useCallback(
+    async (storagePath: string): Promise<string | null> => {
+      const cached = imageUrlCache.current.get(storagePath);
+      if (cached) return cached;
+      const { data } = await supabase.storage.from("notebook-images").createSignedUrl(storagePath, 3600);
+      if (!data?.signedUrl) return null;
+      imageUrlCache.current.set(storagePath, data.signedUrl);
+      return data.signedUrl;
+    },
+    [supabase]
+  );
+
+  const insertImage = useCallback(
+    async (file: File): Promise<string | null> => {
+      const { data: u } = await supabase.auth.getUser();
+      const uid = u.user?.id;
+      if (!uid) {
+        toast("Not signed in", "error");
+        return null;
+      }
+      const path = `${uid}/${notebookId}/${Date.now()}-${file.name}`;
+      const { error } = await supabase.storage
+        .from("notebook-images")
+        .upload(path, file, { contentType: file.type || "image/png" });
+      if (error) {
+        toast(error.message, "error");
+        return null;
+      }
+      return path;
+    },
+    [supabase, notebookId]
+  );
 
   const saveStrokes = (pageId: string, strokes: Stroke[]) => {
     setPages((prev) => prev.map((p) => (p.id === pageId ? { ...p, strokes } : p)));
-    strokesDebouncer.run(`nbpage:${pageId}`, async () => {
+    saveDebouncer.run(`nbpage:${pageId}`, async () => {
       const { error } = await supabase
         .from("notebook_pages")
         .update({ strokes, updated_at: new Date().toISOString() })
         .eq("id", pageId);
       if (error) toast(error.message, "error");
     });
+  };
+
+  const saveElements = (pageId: string, elements: NotebookPageElement[]) => {
+    setPages((prev) => prev.map((p) => (p.id === pageId ? { ...p, elements } : p)));
+    saveDebouncer.run(`nbelements:${pageId}`, async () => {
+      const { error } = await supabase
+        .from("notebook_pages")
+        .update({ elements, updated_at: new Date().toISOString() })
+        .eq("id", pageId);
+      if (error) toast(error.message, "error");
+    });
+  };
+
+  const exportPdf = async () => {
+    if (!notebook || pages.length === 0) return;
+    setExporting("Preparing…");
+    try {
+      // jsPDF is ~150kB — dynamic-imported so it only ever downloads for
+      // someone who actually clicks Export, not on every notebook page load.
+      const { exportNotebookToPdf } = await import("@/lib/notebookExport");
+      await exportNotebookToPdf(
+        notebook.title,
+        pages,
+        loadBackgroundFor,
+        resolveImageUrl,
+        (done, total) => setExporting(`Rendering page ${done}/${total}…`)
+      );
+    } catch {
+      toast("Couldn't export that notebook", "error");
+    } finally {
+      setExporting(null);
+    }
   };
 
   const addPage = async (template: NotebookPageTemplate) => {
@@ -153,11 +235,12 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
         width: p.width,
         height: p.height,
         strokes: p.strokes,
+        elements: p.elements,
       })
       .select()
       .single();
     if (error || !data) return toast(error?.message ?? "Couldn't duplicate the page", "error");
-    const page = { ...(data as NotebookPage), strokes: p.strokes };
+    const page = { ...(data as NotebookPage), strokes: p.strokes, elements: p.elements };
     setPages((prev) => [...prev, page]);
     setActiveId(page.id);
   };
@@ -251,7 +334,7 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
   const rename = async (title: string) => {
     if (!notebook) return;
     setNotebook({ ...notebook, title });
-    strokesDebouncer.run(`nbtitle:${notebookId}`, async () => {
+    saveDebouncer.run(`nbtitle:${notebookId}`, async () => {
       const { error } = await supabase.from("notebooks").update({ title }).eq("id", notebookId);
       if (error) toast(error.message, "error");
     });
@@ -406,6 +489,15 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
+          <button
+            onClick={exportPdf}
+            disabled={!!exporting}
+            title="Export notebook as PDF"
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-txt2 hover:bg-surface2 disabled:opacity-60"
+          >
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{exporting ?? "Export PDF"}</span>
+          </button>
         </header>
 
         <div className="min-h-0 flex-1">
@@ -413,11 +505,15 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
             <NotebookCanvas
               key={active.id}
               strokes={active.strokes}
+              elements={active.elements}
               width={active.width || DEFAULT_PAGE_W}
               height={active.height || DEFAULT_PAGE_H}
               template={active.template}
               background={background}
               onChange={(strokes) => saveStrokes(active.id, strokes)}
+              onElementsChange={(elements) => saveElements(active.id, elements)}
+              onInsertImage={isOwner ? insertImage : undefined}
+              resolveImageUrl={resolveImageUrl}
               readOnly={!isOwner}
             />
           ) : (
@@ -467,16 +563,17 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
                 </>
               )}
             </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && importPdf(e.target.files[0])}
-            />
           </div>
         </div>
       )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(e) => e.target.files?.[0] && importPdf(e.target.files[0])}
+      />
     </div>
   );
 }
