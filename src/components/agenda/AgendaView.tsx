@@ -369,8 +369,7 @@ export default function AgendaView() {
 
   const visibleEvents = events.filter((e) => !hidden.has(e.calendarId));
   const todayStr = format(new Date(), "yyyy-MM-dd");
-  const rangeStart = toISODate(days[0] ?? new Date());
-  const rangeEnd = toISODate(days[days.length - 1] ?? new Date());
+  const thisWeekEndStr = toISODate(addDays(startOfWeek(new Date()), 6));
 
   const title =
     mode === "week"
@@ -384,17 +383,31 @@ export default function AgendaView() {
   const taskOrderKey = (t: Task) =>
     t.sort_order ?? (t.priority || 99) * 1e13 + new Date(t.created_at).getTime();
   const taskOrderCmp = (a: Task, b: Task) => taskOrderKey(a) - taskOrderKey(b);
+  // Chronological first (earliest due date first), falling back to the manual/
+  // priority order above for same-day ties — this is what actually makes the
+  // sidebar buckets read top-to-bottom in date order instead of looking shuffled.
+  const chronoCmp = (a: Task, b: Task) => {
+    const ad = a.due_date ?? "";
+    const bd = b.due_date ?? "";
+    return ad !== bd ? ad.localeCompare(bd) : taskOrderCmp(a, b);
+  };
 
-  // tasks with a due date inside the visible range (week-due tasks land on their week start)
   // !t.is_done here (not just the server-side query) so completing a task
   // optimistically removes it from view immediately, before the reload lands.
   const openTasks = tasks.filter((t) => !t.parent_id && !t.is_done);
-  const inRange = openTasks.filter(
-    (t) => t.due_date && t.due_date >= rangeStart && t.due_date <= rangeEnd
-  );
+  // These buckets are anchored to the real, current-moment "today" — not to
+  // whichever day/week the main view happens to be showing — so "Due today"
+  // never mislabels a future day's tasks just because you navigated forward.
   const overdue = openTasks
     .filter((t) => t.due_date && t.due_date < todayStr)
-    .sort(taskOrderCmp);
+    .sort(chronoCmp);
+  const dueToday = openTasks.filter((t) => t.due_date === todayStr).sort(taskOrderCmp);
+  const dueThisWeek = openTasks
+    .filter((t) => t.due_date && t.due_date > todayStr && t.due_date <= thisWeekEndStr)
+    .sort(chronoCmp);
+  const later = openTasks
+    .filter((t) => t.due_date && t.due_date > thisWeekEndStr)
+    .sort(chronoCmp);
   // Week-kind tasks for the week currently on screen — shown once, as a
   // banner across the whole week, rather than repeated in every day column.
   const weekLongTasks =
@@ -739,9 +752,19 @@ export default function AgendaView() {
           <TaskRow key={t.id} t={t} showDue list={overdue} />
         ))}
       </Bucket>
-      <Bucket title={isSameDay(anchor, new Date()) ? "Due today" : "Due this day"} count={inRange.length}>
-        {inRange.map((t) => (
-          <TaskRow key={t.id} t={t} showDue list={inRange} />
+      <Bucket title="Due today" count={dueToday.length}>
+        {dueToday.map((t) => (
+          <TaskRow key={t.id} t={t} list={dueToday} />
+        ))}
+      </Bucket>
+      <Bucket title="Due this week" count={dueThisWeek.length}>
+        {dueThisWeek.map((t) => (
+          <TaskRow key={t.id} t={t} showDue list={dueThisWeek} />
+        ))}
+      </Bucket>
+      <Bucket title="Later" count={later.length}>
+        {later.map((t) => (
+          <TaskRow key={t.id} t={t} showDue list={later} />
         ))}
       </Bucket>
       <Bucket title="Unscheduled" count={unscheduled.length}>
@@ -749,11 +772,15 @@ export default function AgendaView() {
           <TaskRow key={t.id} t={t} list={unscheduled} />
         ))}
       </Bucket>
-      {overdue.length === 0 && inRange.length === 0 && unscheduled.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-txt3">
-          No open tasks right now. New tasks (overdue, due this range, or with no due date) show up here.
-        </div>
-      )}
+      {overdue.length === 0 &&
+        dueToday.length === 0 &&
+        dueThisWeek.length === 0 &&
+        later.length === 0 &&
+        unscheduled.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-txt3">
+            No open tasks right now. New tasks (overdue, upcoming, or with no due date) show up here.
+          </div>
+        )}
     </div>
   );
 
@@ -857,7 +884,7 @@ export default function AgendaView() {
               className="flex shrink-0 items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
             >
               <ListTodo className="h-3.5 w-3.5" />
-              {overdue.length + inRange.length}
+              {overdue.length + dueToday.length + dueThisWeek.length}
             </button>
           </div>
 
@@ -1006,9 +1033,9 @@ export default function AgendaView() {
           className="hidden w-8 shrink-0 flex-col items-center gap-2 border-l border-border py-3 text-txt3 hover:bg-surface2 hover:text-txt lg:flex"
         >
           <PanelRightOpen className="h-3.5 w-3.5" />
-          {overdue.length + inRange.length + unscheduled.length > 0 && (
+          {overdue.length + dueToday.length + dueThisWeek.length + later.length + unscheduled.length > 0 && (
             <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-medium text-white">
-              {overdue.length + inRange.length + unscheduled.length}
+              {overdue.length + dueToday.length + dueThisWeek.length + later.length + unscheduled.length}
             </span>
           )}
         </button>
