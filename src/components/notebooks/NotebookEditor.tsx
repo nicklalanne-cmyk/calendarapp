@@ -359,12 +359,12 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
       {/* page rail */}
       <aside
         className={clsx(
-          "flex w-56 shrink-0 flex-col border-r border-border bg-surface md:relative md:flex",
+          "flex w-56 shrink-0 flex-col border-r border-border bg-surface lg:relative lg:flex",
           railOpen ? "fixed inset-y-0 left-0 z-40 w-72" : "hidden"
         )}
       >
         {railOpen && (
-          <div className="flex items-center justify-between border-b border-border p-2 md:hidden">
+          <div className="flex items-center justify-between border-b border-border p-2 lg:hidden">
             <span className="text-sm font-medium">Pages</span>
             <button onClick={() => setRailOpen(false)} className="rounded-lg p-2 text-txt3">
               <X className="h-4 w-4" />
@@ -440,7 +440,7 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
         )}
       </aside>
       {railOpen && (
-        <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setRailOpen(false)} />
+        <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setRailOpen(false)} />
       )}
 
       {/* main */}
@@ -448,13 +448,13 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
         <header className="flex items-center gap-2 border-b border-border px-2 py-1.5">
           <button
             onClick={() => setRailOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 hover:bg-surface2 md:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 hover:bg-surface2 lg:hidden"
           >
             <Menu className="h-5 w-5" />
           </button>
           <button
             onClick={() => router.push("/app/notebooks")}
-            className="hidden h-9 w-9 items-center justify-center rounded-lg text-txt2 hover:bg-surface2 md:flex"
+            className="hidden h-9 w-9 items-center justify-center rounded-lg text-txt2 hover:bg-surface2 lg:flex"
             title="Back to notebooks"
           >
             <ArrowLeft className="h-5 w-5" />

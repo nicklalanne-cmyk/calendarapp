@@ -171,7 +171,7 @@ export default function AppShell({
       {/* ---------------- desktop rail ---------------- */}
       <nav
         className={clsx(
-          "hidden shrink-0 flex-col gap-1 border-r border-border py-4 transition-[width] duration-150 md:flex",
+          "hidden shrink-0 flex-col gap-1 border-r border-border py-4 transition-[width] duration-150 lg:flex",
           railExpanded ? "w-56 items-stretch px-2" : "w-16 items-center"
         )}
       >
@@ -289,7 +289,7 @@ export default function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* ---------------- desktop utility bar: search + assistant, always top-right ---------------- */}
-        <div className="hidden h-12 shrink-0 items-center justify-end gap-1 border-b border-border px-3 md:flex">
+        <div className="hidden h-12 shrink-0 items-center justify-end gap-1 border-b border-border px-3 lg:flex">
           <button
             onClick={() => setCmdOpen(true)}
             title="Search & quick add (⌘K)"
@@ -310,7 +310,7 @@ export default function AppShell({
         </div>
 
         {/* ---------------- mobile header ---------------- */}
-        <header className="flex h-14 shrink-0 items-center gap-2 px-3 md:hidden">
+        <header className="flex h-14 shrink-0 items-center gap-2 px-3 lg:hidden">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
             <CalendarDays className="h-[18px] w-[18px]" />
           </div>
@@ -344,7 +344,7 @@ export default function AppShell({
 
         {/* ---------------- mobile bottom nav ---------------- */}
         <nav
-          className="flex shrink-0 items-center justify-around border-t border-border bg-bg px-1 pt-1.5 md:hidden"
+          className="flex shrink-0 items-center justify-around border-t border-border bg-bg px-1 pt-1.5 lg:hidden"
           style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
         >
           {mobileNav.slice(0, 2).map((n) => (
@@ -375,7 +375,7 @@ export default function AppShell({
 
       {/* ---------------- mobile overflow sheet ---------------- */}
       {sheet && (
-        <div className="fixed inset-0 z-50 md:hidden" onClick={() => setSheet(false)}>
+        <div className="fixed inset-0 z-50 lg:hidden" onClick={() => setSheet(false)}>
           <div className="absolute inset-0 bg-black/50" />
           <div
             className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-surface p-4 pb-8"
