@@ -30,6 +30,10 @@ import {
   List,
   ListOrdered,
   ListChecks,
+  Bold,
+  Italic,
+  Strikethrough,
+  Heading2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -274,6 +278,76 @@ export default function NotesView() {
     const { data } = await supabase.from("notes").select("*").eq("id", active.id).single();
     if (data) setActive(data as Note);
     toast("Link removed");
+  };
+
+  // --- Bold / italic / strikethrough -----------------------------------------
+  // Wraps the current selection in markdown emphasis markers, or — if it's
+  // already wrapped — unwraps it (so tapping Bold again on bold text turns
+  // it back off). With no selection, it drops in a placeholder that's
+  // pre-selected so typing immediately replaces it.
+  const wrapSelection = (marker: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const value = body;
+    const selected = value.slice(start, end);
+    const before = value.slice(Math.max(0, start - marker.length), start);
+    const after = value.slice(end, end + marker.length);
+
+    if (selected && before === marker && after === marker) {
+      const newValue =
+        value.slice(0, start - marker.length) + selected + value.slice(end + marker.length);
+      setBody(newValue);
+      requestAnimationFrame(() => {
+        ta.focus();
+        ta.selectionStart = start - marker.length;
+        ta.selectionEnd = end - marker.length;
+      });
+      return;
+    }
+
+    const inner = selected || "text";
+    const newValue = value.slice(0, start) + marker + inner + marker + value.slice(end);
+    setBody(newValue);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = start + marker.length;
+      ta.selectionEnd = start + marker.length + inner.length;
+    });
+  };
+
+  // Toggles a "## " heading marker on the current line.
+  const toggleHeading = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const value = body;
+    const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    let lineEnd = value.indexOf("\n", start);
+    if (lineEnd === -1) lineEnd = value.length;
+    const line = value.slice(lineStart, lineEnd);
+    const isHeading = /^##\s/.test(line);
+    const newLine = isHeading ? line.replace(/^##\s/, "") : `## ${line}`;
+    const newValue = value.slice(0, lineStart) + newLine + value.slice(lineEnd);
+    setBody(newValue);
+    const delta = newLine.length - line.length;
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = Math.max(lineStart, start + delta);
+    });
+  };
+
+  // ⌘/Ctrl+B and ⌘/Ctrl+I work from a hardware keyboard too.
+  const handleBodyKeyDownFormatting = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      wrapSelection("**");
+    } else if (e.key.toLowerCase() === "i") {
+      e.preventDefault();
+      wrapSelection("_");
+    }
   };
 
   // --- Easy lists -----------------------------------------------------------
@@ -692,41 +766,39 @@ export default function NotesView() {
               </div>
             ) : (
               <>
-                <div className="mb-2 flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => applyList("bullet")}
-                    title="Bullet list"
-                    aria-label="Bullet list"
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-7 md:w-7 md:hover:bg-surface"
-                  >
+                <div className="-mx-1 mb-2 flex items-center gap-0.5 overflow-x-auto px-1">
+                  <ToolbarButton title="Bold (⌘B)" onClick={() => wrapSelection("**")}>
+                    <Bold className="h-4 w-4" />
+                  </ToolbarButton>
+                  <ToolbarButton title="Italic (⌘I)" onClick={() => wrapSelection("_")}>
+                    <Italic className="h-4 w-4" />
+                  </ToolbarButton>
+                  <ToolbarButton title="Strikethrough" onClick={() => wrapSelection("~~")}>
+                    <Strikethrough className="h-4 w-4" />
+                  </ToolbarButton>
+                  <ToolbarButton title="Heading" onClick={toggleHeading}>
+                    <Heading2 className="h-4 w-4" />
+                  </ToolbarButton>
+                  <div className="mx-1 h-5 w-px shrink-0 bg-border" />
+                  <ToolbarButton title="Bullet list" onClick={() => applyList("bullet")}>
                     <List className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applyList("number")}
-                    title="Numbered list"
-                    aria-label="Numbered list"
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-7 md:w-7 md:hover:bg-surface"
-                  >
+                  </ToolbarButton>
+                  <ToolbarButton title="Numbered list" onClick={() => applyList("number")}>
                     <ListOrdered className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applyList("check")}
-                    title="Checklist"
-                    aria-label="Checklist"
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-7 md:w-7 md:hover:bg-surface"
-                  >
+                  </ToolbarButton>
+                  <ToolbarButton title="Checklist" onClick={() => applyList("check")}>
                     <ListChecks className="h-4 w-4" />
-                  </button>
+                  </ToolbarButton>
                 </div>
                 <textarea
                   ref={textareaRef}
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
                   onBlur={save}
-                  onKeyDown={handleBodyKeyDown}
+                  onKeyDown={(e) => {
+                    handleBodyKeyDownFormatting(e);
+                    if (!e.defaultPrevented) handleBodyKeyDown(e);
+                  }}
                   placeholder="Write in markdown — # heading, **bold**, - list, [ ] todo…"
                   className="flex-1 resize-none bg-transparent font-mono text-[15px] leading-relaxed outline-none placeholder:text-txt3 md:text-sm"
                 />
@@ -752,5 +824,28 @@ export default function NotesView() {
         )}
       </section>
     </div>
+  );
+}
+
+function ToolbarButton({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()} // keep the textarea's selection intact on tap
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-7 md:w-7 md:hover:bg-surface"
+    >
+      {children}
+    </button>
   );
 }
