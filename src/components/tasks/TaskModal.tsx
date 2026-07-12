@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Trash2, Repeat, CalendarDays, Unlink } from "lucide-react";
+import { X, Trash2, Repeat, CalendarDays, Unlink, Users } from "lucide-react";
 import LinkPicker from "@/components/notes/LinkPicker";
 import clsx from "clsx";
 import type { Task } from "@/lib/types";
@@ -36,6 +36,7 @@ export type TaskDraft = {
   linked_event: LinkedEvent;
   /** For repeating tasks: change just this one, or the whole series. */
   scope?: EditScope;
+  shared: boolean;
 };
 
 const field =
@@ -46,6 +47,7 @@ export default function TaskModal({
   task,
   mode,
   projects,
+  currentUserId,
   onClose,
   onSave,
   onDelete,
@@ -53,6 +55,8 @@ export default function TaskModal({
   task: Task | null;
   mode: "create" | "edit";
   projects: string[];
+  /** current user's id, used to decide whether they own this task and can toggle sharing */
+  currentUserId?: string | null;
   onClose: () => void;
   onSave: (draft: TaskDraft) => void;
   onDelete?: (t: Task) => void;
@@ -85,6 +89,8 @@ export default function TaskModal({
       : null
   );
   const [picking, setPicking] = useState(false);
+  const [shared, setShared] = useState(task?.shared ?? false);
+  const isOwner = mode === "create" || !task || task.user_id === currentUserId;
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -128,6 +134,7 @@ export default function TaskModal({
       notes: notes.trim() || null,
       linked_event: linkedEvent,
       scope: mode === "edit" && repeats ? scope : undefined,
+      shared,
     });
   };
 
@@ -464,6 +471,39 @@ export default function TaskModal({
               >
                 <CalendarDays className="h-4 w-4" /> Link a calendar event
               </button>
+            )}
+          </div>
+
+          <div>
+            <label className={label}>Sharing</label>
+            {isOwner ? (
+              <div className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2.5">
+                <span className="flex items-center gap-2 text-sm text-txt2">
+                  <Users className="h-4 w-4 text-txt3" /> Share with partner
+                </span>
+                <button
+                  role="switch"
+                  aria-checked={shared}
+                  onClick={() => setShared((v) => !v)}
+                  className={clsx(
+                    "relative h-7 w-12 shrink-0 rounded-full transition",
+                    shared ? "bg-accent" : "bg-surface3"
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      "absolute top-1 h-5 w-5 rounded-full bg-white transition-all",
+                      shared ? "left-6" : "left-1"
+                    )}
+                  />
+                </button>
+              </div>
+            ) : (
+              task?.shared && (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-txt3">
+                  <Users className="h-4 w-4" /> Shared with you — read/write, owned by your partner
+                </div>
+              )
             )}
           </div>
 

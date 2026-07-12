@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Table2, Kanban, List as ListIcon, CalendarDays, ArrowLeft, Trash2, Plus, Loader2,
-  Search, ArrowUpDown, X, Star,
+  Search, ArrowUpDown, X, Star, Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
@@ -44,6 +44,11 @@ export default function PageView({ pageId }: { pageId: string }) {
   const [linkedTasks, setLinkedTasks] = useState<Record<string, Task>>({});
   const [cellBusy, setCellBusy] = useState<string | null>(null);
   const [picking, setPicking] = useState<{ recordId: string; propId: string } | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
+  }, [supabase]);
 
   // One DB round-trip per keystroke was hammering Supabase. Update the UI
   // immediately, then coalesce the writes.
@@ -497,13 +502,35 @@ export default function PageView({ pageId }: { pageId: string }) {
           >
             <Star className="h-4 w-4" fill={page.pinned_at ? "currentColor" : "none"} />
           </button>
-          <button
-            onClick={deletePage}
-            title="Delete page"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-txt3 hover:bg-surface hover:text-danger"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {page.user_id === currentUserId ? (
+            <button
+              onClick={() => savePage({ shared: !page.shared }, true)}
+              title={page.shared ? "Shared with partner — click to unshare" : "Share with partner"}
+              aria-label={page.shared ? "Unshare" : "Share with partner"}
+              className={clsx(
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg hover:bg-surface",
+                page.shared ? "text-accent" : "text-txt3"
+              )}
+            >
+              <Users className="h-4 w-4" fill={page.shared ? "currentColor" : "none"} />
+            </button>
+          ) : page.shared ? (
+            <span
+              title="Shared with you"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-accentSoft"
+            >
+              <Users className="h-4 w-4" />
+            </span>
+          ) : null}
+          {page.user_id === currentUserId && (
+            <button
+              onClick={deletePage}
+              title="Delete page"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-txt3 hover:bg-surface hover:text-danger"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         <input

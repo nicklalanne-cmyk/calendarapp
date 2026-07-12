@@ -5,7 +5,10 @@ import { format } from "date-fns";
 import {
   Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon, Pencil, X,
 } from "lucide-react";
+import clsx from "clsx";
 import type { Attendee } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/lib/toast";
 
 export type EventDraft = {
   id?: string;
@@ -70,6 +73,76 @@ export default function EventModal({
   const [location, setLocation] = useState(draft.location ?? "");
   const [description, setDescription] = useState(draft.description ?? "");
   const [repeat, setRepeat] = useState<string>("none");
+
+  // Sharing with partner — a denormalised snapshot in `shared_events`, never
+  // touches Google. Only meaningful for a real, already-created event.
+  const supabase = createClient();
+  const [shared, setShared] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!draft.id) return;
+    let alive = true;
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      const uid = u.user?.id ?? null;
+      if (!alive) return;
+      setCurrentUserId(uid);
+      if (!uid) return;
+      const { data } = await supabase
+        .from("shared_events")
+        .select("id")
+        .eq("owner_user_id", uid)
+        .eq("event_id", draft.id)
+        .maybeSingle();
+      if (!alive) return;
+      setShared(Boolean(data));
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.id]);
+
+  const toggleShare = async () => {
+    if (!draft.id || !currentUserId) return;
+    setSharing(true);
+    try {
+      if (shared) {
+        const { error } = await supabase
+          .from("shared_events")
+          .delete()
+          .eq("owner_user_id", currentUserId)
+          .eq("event_id", draft.id);
+        if (error) throw new Error(error.message);
+        setShared(false);
+        toast("Unshared");
+      } else {
+        const row = {
+          owner_user_id: currentUserId,
+          account_id: draft.accountId ?? null,
+          calendar_id: draft.calendarId ?? null,
+          event_id: draft.id,
+          title: draft.title,
+          location: draft.location || null,
+          start_at: draft.start.toISOString(),
+          end_at: draft.end.toISOString(),
+          all_day: false,
+        };
+        const { error } = await supabase
+          .from("shared_events")
+          .upsert(row, { onConflict: "owner_user_id,event_id" });
+        if (error) throw new Error(error.message);
+        setShared(true);
+        toast("Shared with your partner");
+      }
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setSharing(false);
+    }
+  };
 
   // Discard any in-progress edits and go back to the read-only view.
   const cancelEdit = () => {
@@ -242,6 +315,19 @@ export default function EventModal({
                   <Trash2 className="h-4 w-4" /> Delete
                 </button>
               ) : null}
+              {draft.id && (
+                <button
+                  onClick={toggleShare}
+                  disabled={sharing}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-lg border px-4 py-3 text-sm active:bg-surface2 disabled:opacity-50 md:px-3 md:py-2 md:hover:bg-surface",
+                    shared ? "border-accent text-accent" : "border-border text-txt2"
+                  )}
+                >
+                  <Users className="h-4 w-4" fill={shared ? "currentColor" : "none"} />
+                  {shared ? "Shared" : "Share"}
+                </button>
+              )}
               <button
                 onClick={() => setMode("edit")}
                 className="ml-auto flex items-center gap-1.5 rounded-lg bg-accent px-6 py-3 text-sm font-medium text-white active:opacity-80 md:px-4 md:py-2 md:hover:bg-accentSoft"

@@ -25,6 +25,7 @@ export type Task = {
   linked_event_title: string | null;
   linked_event_start: string | null;
   created_at: string;
+  shared: boolean;
 };
 
 export type Note = {
@@ -46,6 +47,7 @@ export type Note = {
   event_start: string | null;
   updated_at: string;
   pinned_at: string | null;
+  shared: boolean;
 };
 
 export type Attendee = {
@@ -82,6 +84,22 @@ export type ConnectedAccount = {
   id: string;
   google_email: string;
   is_default: boolean;
+};
+
+/** A denormalised snapshot of a Google Calendar event, dropped into the DB so
+ * a partner's Cadence RLS can see it — never touches Google, no invite sent. */
+export type SharedEvent = {
+  id: string;
+  owner_user_id: string;
+  account_id: string | null;
+  calendar_id: string | null;
+  event_id: string;
+  title: string;
+  location: string | null;
+  start_at: string;
+  end_at: string | null;
+  all_day: boolean;
+  created_at: string;
 };
 
 export type UserSettings = {

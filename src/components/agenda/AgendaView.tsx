@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format, isSameDay, parseISO } from "date-fns";
 import {
   Check, MapPin, Flag, Video, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  ListTodo, X, Loader2,
+  ListTodo, X, Loader2, Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
-import type { CalendarEvent, Task } from "@/lib/types";
+import type { CalendarEvent, SharedEvent, Task } from "@/lib/types";
 import { dayRange, fmtTime } from "@/lib/dates";
 import { getHiddenCals } from "@/lib/calfilter";
 import { toISODate } from "@/lib/recurrence";
@@ -23,6 +23,11 @@ export default function AgendaView() {
   const [anchor, setAnchor] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  // Events the partner shared with you — a denormalised snapshot, not fetched
+  // from Google. This view-only feed is scoped to AgendaView; Planner's
+  // Google-Calendar-grid rendering (CalendarGrid/MonthView) doesn't consume it —
+  // wiring it into that grid is a bigger visual job, out of scope for this pass.
+  const [sharedEvents, setSharedEvents] = useState<SharedEvent[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -62,6 +67,16 @@ export default function AgendaView() {
     const { data } = await supabase.from("tasks").select("*").eq("is_done", false).is("deleted_at", null);
     if (seq !== reqSeq.current) return;
     setTasks((data as Task[]) ?? []);
+
+    // RLS only returns rows the partner shared with you — none of your own,
+    // since your own real events already arrive via the Google fetch above.
+    const { data: shared } = await supabase
+      .from("shared_events")
+      .select("*")
+      .gte("start_at", start.toISOString())
+      .lte("start_at", end.toISOString());
+    if (seq !== reqSeq.current) return;
+    setSharedEvents((shared as SharedEvent[]) ?? []);
     setLoading(false);
   }, [supabase, days]);
 
@@ -355,8 +370,14 @@ export default function AgendaView() {
                       : t.due_date === dayStr // week tasks show on their week's first day
                 )
                 .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+              const daySharedEvents =
+                mode === "day"
+                  ? sharedEvents
+                      .filter((e) => isSameDay(parseISO(e.start_at), day))
+                      .sort((a, b) => a.start_at.localeCompare(b.start_at))
+                  : [];
 
-              const emptyDay = dayEvents.length === 0 && dayTasks.length === 0;
+              const emptyDay = dayEvents.length === 0 && dayTasks.length === 0 && daySharedEvents.length === 0;
 
               return (
                 <div key={dayStr} className="mb-5">
@@ -409,6 +430,31 @@ export default function AgendaView() {
                             </a>
                           )}
                         </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {daySharedEvents.map((e) => (
+                    <div
+                      key={`shared:${e.id}`}
+                      className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5"
+                      title="Shared with you by your partner"
+                    >
+                      <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
+                        {e.all_day ? "All day" : fmtTime(parseISO(e.start_at))}
+                      </span>
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accentSoft" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 truncate text-[15px] text-txt md:text-sm">
+                          <span className="truncate">{e.title}</span>
+                          <Users className="h-3 w-3 shrink-0 text-accentSoft" />
+                        </div>
+                        {e.location && (
+                          <div className="flex items-center gap-1 text-[11px] text-txt3">
+                            <MapPin className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{e.location}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

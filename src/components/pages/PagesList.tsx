@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, X, Star } from "lucide-react";
+import { Plus, Loader2, X, Star, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { recordRecent } from "@/lib/recent";
@@ -15,6 +15,11 @@ export default function PagesList() {
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
+  }, [supabase]);
 
   const pinnedPages = pages.filter((p) => p.pinned_at);
   const otherPages = pages.filter((p) => !p.pinned_at);
@@ -53,6 +58,19 @@ export default function PagesList() {
       load();
     } else {
       toast(pinning ? `Pinned "${p.title}"` : `Unpinned "${p.title}"`);
+    }
+  };
+
+  const toggleShare = async (p: Page, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const sharing = !p.shared;
+    setPages((prev) => prev.map((x) => (x.id === p.id ? { ...x, shared: sharing } : x)));
+    const { error } = await supabase.from("pages").update({ shared: sharing }).eq("id", p.id);
+    if (error) {
+      toast(error.message, "error");
+      load();
+    } else {
+      toast(sharing ? `Shared "${p.title}" with your partner` : `Unshared "${p.title}"`);
     }
   };
 
@@ -169,7 +187,14 @@ export default function PagesList() {
                 </h2>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {pinnedPages.map((p) => (
-                    <PageCard key={p.id} page={p} onOpen={() => openPage(p)} onTogglePin={(e) => togglePin(p, e)} />
+                    <PageCard
+                      key={p.id}
+                      page={p}
+                      isOwner={p.user_id === currentUserId}
+                      onOpen={() => openPage(p)}
+                      onTogglePin={(e) => togglePin(p, e)}
+                      onToggleShare={(e) => toggleShare(p, e)}
+                    />
                   ))}
                 </div>
               </div>
@@ -181,7 +206,14 @@ export default function PagesList() {
                 )}
                 <div className="grid gap-2 sm:grid-cols-2">
                   {otherPages.map((p) => (
-                    <PageCard key={p.id} page={p} onOpen={() => openPage(p)} onTogglePin={(e) => togglePin(p, e)} />
+                    <PageCard
+                      key={p.id}
+                      page={p}
+                      isOwner={p.user_id === currentUserId}
+                      onOpen={() => openPage(p)}
+                      onTogglePin={(e) => togglePin(p, e)}
+                      onToggleShare={(e) => toggleShare(p, e)}
+                    />
                   ))}
                 </div>
               </div>
@@ -234,12 +266,16 @@ export default function PagesList() {
 
 function PageCard({
   page,
+  isOwner,
   onOpen,
   onTogglePin,
+  onToggleShare,
 }: {
   page: Page;
+  isOwner: boolean;
   onOpen: () => void;
   onTogglePin: (e: React.MouseEvent) => void;
+  onToggleShare: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
@@ -248,7 +284,14 @@ function PageCard({
     >
       <span className="text-xl">{page.icon ?? "📄"}</span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate pr-6 font-medium">{page.title}</span>
+        <span className="flex items-center gap-1.5 truncate pr-12 font-medium">
+          {page.title}
+          {!isOwner && page.shared && (
+            <span title="Shared with you" className="text-accentSoft">
+              <Users className="h-3.5 w-3.5" />
+            </span>
+          )}
+        </span>
         <span className="block truncate text-xs text-txt3">{page.description || `${page.view} view`}</span>
       </span>
       <span
@@ -256,12 +299,25 @@ function PageCard({
         role="button"
         aria-label={page.pinned_at ? "Unpin" : "Pin"}
         title={page.pinned_at ? "Unpin" : "Pin to top"}
-        className={`absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
+        className={`absolute right-9 top-2 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
           page.pinned_at ? "text-accent md:opacity-100" : "text-txt3"
         }`}
       >
         <Star className="h-4 w-4" fill={page.pinned_at ? "currentColor" : "none"} />
       </span>
+      {isOwner ? (
+        <span
+          onClick={onToggleShare}
+          role="button"
+          aria-label={page.shared ? "Unshare" : "Share with partner"}
+          title={page.shared ? "Shared with partner — click to unshare" : "Share with partner"}
+          className={`absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
+            page.shared ? "text-accent md:opacity-100" : "text-txt3"
+          }`}
+        >
+          <Users className="h-4 w-4" fill={page.shared ? "currentColor" : "none"} />
+        </span>
+      ) : null}
     </button>
   );
 }

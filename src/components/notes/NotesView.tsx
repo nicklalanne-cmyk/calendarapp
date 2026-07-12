@@ -35,6 +35,7 @@ import {
   Strikethrough,
   Heading2,
   Star,
+  Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -56,6 +57,11 @@ export default function NotesView() {
   const inkDebouncer = useRef(makeDebouncer(900)).current;
   const [linkedTask, setLinkedTask] = useState<Task | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
+  }, [supabase]);
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -107,6 +113,21 @@ export default function NotesView() {
     if (error) {
       toast(error.message, "error");
       load();
+    }
+  };
+
+  const toggleShare = async (n: Note, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const sharing = !n.shared;
+    const patch = { shared: sharing };
+    setNotes((prev) => prev.map((x) => (x.id === n.id ? { ...x, ...patch } : x)));
+    if (active?.id === n.id) setActive((prev) => (prev ? { ...prev, ...patch } : prev));
+    const { error } = await supabase.from("notes").update(patch).eq("id", n.id);
+    if (error) {
+      toast(error.message, "error");
+      load();
+    } else {
+      toast(sharing ? "Shared with your partner" : "Unshared");
     }
   };
 
@@ -590,7 +611,15 @@ export default function NotesView() {
               {notes
                 .filter((n) => n.pinned_at)
                 .map((n) => (
-                  <NoteRow key={n.id} note={n} active={active?.id === n.id} onSelect={() => select(n)} onTogglePin={(e) => togglePin(n, e)} />
+                  <NoteRow
+                    key={n.id}
+                    note={n}
+                    active={active?.id === n.id}
+                    isOwner={n.user_id === currentUserId}
+                    onSelect={() => select(n)}
+                    onTogglePin={(e) => togglePin(n, e)}
+                    onToggleShare={(e) => toggleShare(n, e)}
+                  />
                 ))}
               <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-txt3">
                 All notes
@@ -600,7 +629,15 @@ export default function NotesView() {
           {notes
             .filter((n) => !n.pinned_at)
             .map((n) => (
-              <NoteRow key={n.id} note={n} active={active?.id === n.id} onSelect={() => select(n)} onTogglePin={(e) => togglePin(n, e)} />
+              <NoteRow
+                key={n.id}
+                note={n}
+                active={active?.id === n.id}
+                isOwner={n.user_id === currentUserId}
+                onSelect={() => select(n)}
+                onTogglePin={(e) => togglePin(n, e)}
+                onToggleShare={(e) => toggleShare(n, e)}
+              />
             ))}
           {notes.length === 0 && (
             <p className="px-2 py-6 text-center text-xs text-txt3">No notes yet.</p>
@@ -844,18 +881,22 @@ export default function NotesView() {
 function NoteRow({
   note,
   active,
+  isOwner,
   onSelect,
   onTogglePin,
+  onToggleShare,
 }: {
   note: Note;
   active: boolean;
+  isOwner: boolean;
   onSelect: () => void;
   onTogglePin: (e: React.MouseEvent) => void;
+  onToggleShare: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
       onClick={onSelect}
-      className={`group relative flex w-full items-start gap-2 rounded-lg px-2 py-3 pr-10 text-left md:py-2 ${
+      className={`group relative flex w-full items-start gap-2 rounded-lg px-2 py-3 pr-16 text-left md:py-2 ${
         active ? "bg-surface3" : "hover:bg-surface"
       }`}
     >
@@ -867,6 +908,11 @@ function NoteRow({
           {note.task_id && <CheckSquare className="h-3 w-3 text-accentSoft" />}
           {note.event_id && <Link2 className="h-3 w-3 text-accentSoft" />}
           {note.ink && (note.ink.strokes?.length ?? 0) > 0 && <PenLine className="h-3 w-3 text-accentSoft" />}
+          {!isOwner && note.shared && (
+            <span className="flex items-center gap-0.5 text-accentSoft" title="Shared with you">
+              <Users className="h-3 w-3" />
+            </span>
+          )}
         </div>
       </div>
       <span
@@ -874,12 +920,25 @@ function NoteRow({
         role="button"
         aria-label={note.pinned_at ? "Unpin" : "Pin"}
         title={note.pinned_at ? "Unpin" : "Pin to top"}
-        className={`absolute right-1 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
+        className={`absolute right-8 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
           note.pinned_at ? "text-accent md:opacity-100" : "text-txt3"
         }`}
       >
         <Star className="h-3.5 w-3.5" fill={note.pinned_at ? "currentColor" : "none"} />
       </span>
+      {isOwner ? (
+        <span
+          onClick={onToggleShare}
+          role="button"
+          aria-label={note.shared ? "Unshare" : "Share with partner"}
+          title={note.shared ? "Shared with partner — click to unshare" : "Share with partner"}
+          className={`absolute right-1 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg transition-opacity active:bg-surface2 md:h-7 md:w-7 md:opacity-30 md:group-hover:opacity-100 ${
+            note.shared ? "text-accent md:opacity-100" : "text-txt3"
+          }`}
+        >
+          <Users className="h-3.5 w-3.5" fill={note.shared ? "currentColor" : "none"} />
+        </span>
+      ) : null}
     </button>
   );
 }

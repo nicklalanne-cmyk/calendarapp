@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Task } from "@/lib/types";
-import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays } from "lucide-react";
+import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays, Users } from "lucide-react";
 import clsx from "clsx";
 import { format, parseISO } from "date-fns";
 
@@ -131,6 +131,11 @@ export default function TaskItem({
                 </span>
               )}
               {repeats && <Repeat className="h-3 w-3 shrink-0 text-txt3" />}
+              {task.shared && (
+                <span title="Shared with partner" className="flex shrink-0 items-center text-accentSoft">
+                  <Users className="h-3 w-3" />
+                </span>
+              )}
               {task.linked_event_id && (
                 <span
                   className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-accentSoft"

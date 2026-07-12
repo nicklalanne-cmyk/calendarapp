@@ -38,6 +38,11 @@ export default function Planner() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
+  }, [supabase]);
 
   const eventCols = (e: LinkedEvent) => ({
     linked_event_id: e?.id ?? null,
@@ -191,6 +196,7 @@ export default function Planner() {
       tags: d.tags,
       estimate_minutes: d.estimate_minutes,
       notes: d.notes,
+      shared: d.shared,
       ...eventCols(d.linked_event),
     });
     if (error) return toast(error.message, "error");
@@ -695,6 +701,7 @@ export default function Planner() {
           task={editing}
           mode="edit"
           projects={projectNames}
+          currentUserId={currentUserId}
           onSave={(patch) => updateTask(editing, patch)}
           onDelete={() => {
             deleteTask(editing);
@@ -715,6 +722,7 @@ export default function Planner() {
           task={null}
           mode="create"
           projects={projectNames}
+          currentUserId={currentUserId}
           onSave={createTask}
           onClose={() => setCreating(false)}
         />

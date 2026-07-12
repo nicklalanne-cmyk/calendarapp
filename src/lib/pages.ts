@@ -47,6 +47,7 @@ export type PageView = "table" | "board" | "list" | "calendar";
 
 export type Page = {
   id: string;
+  user_id: string;
   title: string;
   icon: string | null;
   description: string | null;
@@ -57,6 +58,7 @@ export type Page = {
   sort_dir: "asc" | "desc";
   position: number;
   pinned_at: string | null;
+  shared: boolean;
 };
 
 export const PROP_TYPES: { type: PropType; label: string }[] = [
