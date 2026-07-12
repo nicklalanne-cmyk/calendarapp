@@ -88,6 +88,7 @@ export default function NotebookCanvas({
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const pageRef = useRef<HTMLDivElement | null>(null);
   const bgRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<HTMLCanvasElement>(null);
   const liveRef = useRef<HTMLCanvasElement>(null);
@@ -109,10 +110,23 @@ export default function NotebookCanvas({
 
   // pinch-to-zoom: tracks up to two simultaneous touch pointers
   const touches = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const pinch = useRef<{ dist: number; zoom: number; midX: number; midY: number; sl: number; st: number } | null>(null);
-  // coalesces zoom state updates to at most one per animation frame — each
-  // change resizes/redraws three canvases, so applying every raw touchmove
-  // synchronously is what makes pinch feel laggy
+  const pinch = useRef<{
+    dist: number;
+    zoom: number;
+    midX: number;
+    midY: number;
+    sl: number;
+    st: number;
+    /** live target zoom for the gesture so far — only committed to React state (which
+     * triggers an expensive canvas resize+redraw) once, when the gesture ends */
+    liveZoom: number;
+  } | null>(null);
+  // during a pinch we skip React state entirely: the page div gets a CSS
+  // transform applied straight to the DOM every frame (cheap, GPU-composited),
+  // and canvases only get resized/redrawn once, when the gesture finishes —
+  // resizing them on every touchmove was what made zoom feel laggy, and the
+  // cost grows with zoom level (more backing pixels to redraw), which is why
+  // it got worse the further past 100% you went.
   const pinchFrame = useRef<number | null>(null);
   const pinchPending = useRef<{ zoom: number; dx: number; dy: number } | null>(null);
 
@@ -301,6 +315,7 @@ export default function NotebookCanvas({
     pinch.current = {
       dist: dist(a.x, a.y, b.x, b.y),
       zoom,
+      liveZoom: zoom,
       midX: (a.x + b.x) / 2,
       midY: (a.y + b.y) / 2,
       sl: scrollRef.current?.scrollLeft ?? 0,
@@ -424,7 +439,12 @@ export default function NotebookCanvas({
             pinchFrame.current = null;
             const p = pinchPending.current;
             if (!p || !pinch.current) return;
-            setZoom(p.zoom);
+            // live visual feedback only — a CSS transform on the page div,
+            // no React state change and no canvas resize/redraw this frame
+            pinch.current.liveZoom = p.zoom;
+            if (pageRef.current) {
+              pageRef.current.style.transform = `scale(${p.zoom / pinch.current.zoom})`;
+            }
             if (scrollRef.current) {
               scrollRef.current.scrollLeft = pinch.current.sl - p.dx;
               scrollRef.current.scrollTop = pinch.current.st - p.dy;
@@ -518,12 +538,16 @@ export default function NotebookCanvas({
   const onPointerUp = (e: React.PointerEvent) => {
     if (e.pointerType === "touch") {
       touches.current.delete(e.pointerId);
-      if (touches.current.size < 2) {
-        pinch.current = null;
+      if (touches.current.size < 2 && pinch.current) {
         if (pinchFrame.current != null) {
           cancelAnimationFrame(pinchFrame.current);
           pinchFrame.current = null;
         }
+        // commit the gesture's final zoom now — this is the only point during
+        // a pinch that actually resizes/redraws the canvases
+        if (pageRef.current) pageRef.current.style.transform = "";
+        if (pinch.current.liveZoom !== pinch.current.zoom) setZoom(pinch.current.liveZoom);
+        pinch.current = null;
       }
       if (touches.current.size > 0) return;
     }
@@ -896,10 +920,11 @@ export default function NotebookCanvas({
       )}
 
       <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden bg-surface2">
-        <div ref={scrollRef} className="h-full w-full overflow-auto">
+        <div ref={scrollRef} className="h-full w-full overflow-auto" style={{ touchAction: "none" }}>
           <div
+            ref={pageRef}
             className="relative mx-auto my-4 shadow-md"
-            style={{ width: width * scale, height: height * scale }}
+            style={{ width: width * scale, height: height * scale, transformOrigin: "0 0" }}
           >
             <canvas ref={bgRef} className="absolute inset-0 rounded-sm" />
             <canvas ref={baseRef} className="absolute inset-0" />
