@@ -5,12 +5,20 @@ export type InkPoint = [number, number, number];
 
 export type Tool = "pen" | "highlighter" | "eraser";
 
+export type ShapeKind = "line" | "rect" | "ellipse";
+
 export type Stroke = {
   id: string;
   tool: Exclude<Tool, "eraser">;
   color: string;
   size: number;
   points: InkPoint[];
+  /** When set, this stroke is a geometric shape and is rendered with plain
+   * canvas primitives instead of the perfect-freehand outline algorithm
+   * (which produces self-intersecting geometry at sharp corners). The
+   * `points` array is still kept in sync so hit-testing/erasing/lasso all
+   * continue to work unchanged. */
+  shape?: ShapeKind;
 };
 
 export type InkDoc = {
@@ -81,9 +89,41 @@ export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
     ctx.globalAlpha = 0.32;
     ctx.globalCompositeOperation = "multiply";
   }
-  ctx.fillStyle = s.color;
-  ctx.fill(strokeToPath(s));
+  if (s.shape) {
+    drawShape(ctx, s);
+  } else {
+    ctx.fillStyle = s.color;
+    ctx.fill(strokeToPath(s));
+  }
   ctx.restore();
+}
+
+/** Renders a shape stroke with plain canvas primitives — avoids the
+ * self-intersecting outline geometry perfect-freehand can produce at
+ * sharp corners (e.g. rectangles) when given sparse point arrays. */
+function drawShape(ctx: CanvasRenderingContext2D, s: Stroke) {
+  const pts = s.points;
+  if (pts.length < 2) return;
+  ctx.strokeStyle = s.color;
+  ctx.lineWidth = s.size;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  if (s.shape === "ellipse") {
+    // pts is a sampled loop of points around the ellipse perimeter
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.stroke();
+    return;
+  }
+
+  // line and rect both draw as a simple polyline through their points
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
 }
 
 /** Axis-aligned bounds of a stroke, padded by its width. */
@@ -128,6 +168,60 @@ export function hitsStroke(s: Stroke, x: number, y: number, r: number): boolean 
     }
   }
   return false;
+}
+
+/** Erases only the portion of a stroke within radius r of (x,y), splitting
+ * the remainder into one or more new strokes (contiguous runs of surviving
+ * points). Returns the replacement stroke list — empty if fully erased,
+ * unchanged (same array containing s) if nothing was touched. */
+export function eraseAtPoint(s: Stroke, x: number, y: number, r: number): Stroke[] {
+  if (s.shape) {
+    // shapes erase as a whole unit — splitting a rectangle outline into
+    // partial segments would look broken, so fall back to hit-test removal
+    return hitsStroke(s, x, y, r) ? [] : [s];
+  }
+  const rr = (r + s.size / 2) ** 2;
+  const pts = s.points;
+  const keep: boolean[] = pts.map(([px, py]) => (px - x) ** 2 + (py - y) ** 2 > rr);
+
+  // also knock out points whose adjacent segment passes through the eraser,
+  // so a fast swipe can't slip between sparse samples
+  for (let i = 1; i < pts.length; i++) {
+    if (!keep[i - 1] && !keep[i]) continue;
+    const [ax, ay] = pts[i - 1];
+    const [bx, by] = pts[i];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) continue;
+    let t = ((x - ax) * dx + (y - ay) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + t * dx;
+    const cy = ay + t * dy;
+    if ((cx - x) ** 2 + (cy - y) ** 2 <= rr) {
+      keep[i - 1] = false;
+      keep[i] = false;
+    }
+  }
+
+  if (keep.every(Boolean)) return [s];
+  if (keep.every((k) => !k)) return [];
+
+  const runs: InkPoint[][] = [];
+  let cur: InkPoint[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    if (keep[i]) {
+      cur.push(pts[i]);
+    } else if (cur.length) {
+      runs.push(cur);
+      cur = [];
+    }
+  }
+  if (cur.length) runs.push(cur);
+
+  return runs
+    .filter((run) => run.length >= 2)
+    .map((run) => ({ id: uid(), tool: s.tool, color: s.color, size: s.size, points: run }));
 }
 
 export function contentHeight(strokes: Stroke[]): number {

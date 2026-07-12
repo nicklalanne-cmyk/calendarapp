@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { addDays, addMonths, format } from "date-fns";
 import { ChevronLeft, ChevronRight, Link2, ListTodo, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -31,6 +31,7 @@ type View = "day" | "week" | "month";
 export default function Planner() {
   const supabase = createClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { settings, ready: settingsReady } = useSettings();
   const [view, setView] = useState<View>("day");
   const [viewPinned, setViewPinned] = useState(false);
@@ -50,6 +51,22 @@ export default function Planner() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
   }, [supabase]);
+
+  // Deep-link support: other pages (e.g. Agenda's "jump to day" arrows) can
+  // navigate here with ?date=YYYY-MM-DD&view=day to focus a specific day.
+  useEffect(() => {
+    const d = searchParams.get("date");
+    const v = searchParams.get("view");
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      setDate(new Date(`${d}T00:00:00`));
+    }
+    if (v === "day" || v === "week" || v === "month") {
+      setView(v);
+      setViewPinned(true);
+    }
+    if (d || v) router.replace("/app", { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const eventCols = (e: LinkedEvent) => ({
     linked_event_id: e?.id ?? null,
@@ -237,6 +254,20 @@ export default function Planner() {
     });
     if (error) return toast(error.message, "error");
     setCreating(false);
+    loadTasks();
+  };
+
+  const convertEventToTask = async (d: EventDraft) => {
+    const { error } = await supabase.from("tasks").insert({
+      title: d.title,
+      due_date: d.start.toISOString().slice(0, 10),
+      due_kind: "day",
+      priority: 0,
+      shared: false,
+    });
+    if (error) return toast(error.message, "error");
+    toast(`Added task "${d.title}"`);
+    setDraft(null);
     loadTasks();
   };
 
@@ -793,6 +824,7 @@ export default function Planner() {
           draft={draft}
           onSave={saveEvent}
           onDelete={draft.id ? () => deleteEvent(draft) : undefined}
+          onConvertToTask={convertEventToTask}
           onClose={() => setDraft(null)}
         />
       )}

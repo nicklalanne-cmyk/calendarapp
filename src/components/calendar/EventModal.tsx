@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import {
-  Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon, Pencil, X,
+  Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon, Pencil, X, ListTodo,
 } from "lucide-react";
 import clsx from "clsx";
 import type { Attendee } from "@/lib/types";
@@ -56,11 +56,14 @@ export default function EventModal({
   onSave,
   onDelete,
   onClose,
+  onConvertToTask,
 }: {
   draft: EventDraft;
   onSave: (d: EventDraft) => void;
   onDelete?: () => void;
   onClose: () => void;
+  /** Creates a task from this event's title/time and closes the modal. */
+  onConvertToTask?: (d: EventDraft) => void;
 }) {
   // Existing events open read-only — you have to explicitly hit Edit to
   // change anything. New events (no id yet) open straight into the form
@@ -315,6 +318,15 @@ export default function EventModal({
                   <Trash2 className="h-4 w-4" /> Delete
                 </button>
               ) : null}
+              {draft.id && onConvertToTask && (
+                <button
+                  onClick={() => onConvertToTask(draft)}
+                  title="Convert to task"
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-3 text-sm text-txt2 active:bg-surface2 md:px-3 md:py-2 md:hover:bg-surface"
+                >
+                  <ListTodo className="h-4 w-4" /> To task
+                </button>
+              )}
               {draft.id && (
                 <button
                   onClick={toggleShare}

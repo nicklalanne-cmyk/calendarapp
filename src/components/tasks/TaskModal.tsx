@@ -48,6 +48,7 @@ export default function TaskModal({
   mode,
   projects,
   currentUserId,
+  defaultDueDate,
   onClose,
   onSave,
   onDelete,
@@ -57,13 +58,15 @@ export default function TaskModal({
   projects: string[];
   /** current user's id, used to decide whether they own this task and can toggle sharing */
   currentUserId?: string | null;
+  /** Pre-fills the due date for a brand-new task (e.g. the day being viewed in Agenda). */
+  defaultDueDate?: string;
   onClose: () => void;
   onSave: (draft: TaskDraft) => void;
   onDelete?: (t: Task) => void;
 }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [dueKind, setDueKind] = useState<"day" | "week">(task?.due_kind ?? "day");
-  const [due, setDue] = useState(task?.due_date ?? "");
+  const [due, setDue] = useState(task?.due_date ?? defaultDueDate ?? "");
   const [priority, setPriority] = useState(task?.priority ?? 0);
   const [rrule, setRRule] = useState<string | null>(
     task?.rrule ?? legacyToRRule(task?.repeat ?? null)

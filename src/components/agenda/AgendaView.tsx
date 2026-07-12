@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { addDays, format, isSameDay, parseISO } from "date-fns";
 import {
   Check, MapPin, Flag, Video, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  ListTodo, X, Loader2, Users,
+  ListTodo, X, Loader2, Users, Plus, ArrowUpRight,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
@@ -15,13 +16,21 @@ import { toISODate } from "@/lib/recurrence";
 import { startOfWeek } from "@/lib/tasks";
 import { dueChip } from "@/components/tasks/TaskItem";
 import { toast } from "@/lib/toast";
-import { eventsCacheKey, getCachedEvents, isEventsCacheFresh, setCachedEvents } from "@/lib/eventsCache";
+import {
+  clearEventsCache, eventsCacheKey, getCachedEvents, isEventsCacheFresh, setCachedEvents,
+} from "@/lib/eventsCache";
+import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
+import TaskModal, { type TaskDraft } from "@/components/tasks/TaskModal";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 
 export default function AgendaView() {
   const supabase = createClient();
+  const router = useRouter();
   const [anchor, setAnchor] = useState(new Date());
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<EventDraft | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   // Events the partner shared with you — a denormalised snapshot, not fetched
@@ -129,6 +138,145 @@ export default function AgendaView() {
     };
   }, [load]);
 
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
+  }, [supabase]);
+
+  const projectNames = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.project).filter(Boolean))) as string[],
+    [tasks]
+  );
+
+  const createTask = async (d: TaskDraft) => {
+    const { error } = await supabase.from("tasks").insert({
+      title: d.title,
+      due_date: d.due_date,
+      due_kind: d.due_kind,
+      priority: d.priority,
+      rrule: d.rrule,
+      project: d.project,
+      tags: d.tags,
+      estimate_minutes: d.estimate_minutes,
+      notes: d.notes,
+      shared: d.shared,
+      linked_event_id: d.linked_event?.id ?? null,
+      linked_event_calendar_id: d.linked_event?.calendarId ?? null,
+      linked_event_account_id: d.linked_event?.accountId || null,
+      linked_event_title: d.linked_event?.title ?? null,
+      linked_event_start: d.linked_event?.start || null,
+    });
+    if (error) return toast(error.message, "error");
+    setCreating(false);
+    load(true);
+  };
+
+  const openEvent = (ev: CalendarEvent) =>
+    setDraft({
+      id: ev.id,
+      title: ev.title,
+      start: parseISO(ev.start),
+      end: parseISO(ev.end),
+      accountId: ev.accountId,
+      calendarId: ev.calendarId,
+      accountEmail: ev.accountEmail,
+      location: ev.location ?? "",
+      description: ev.description ?? "",
+      attendees: ev.attendees,
+      meetingLink: ev.meetingLink,
+      recurring: ev.recurring,
+    });
+
+  const saveEvent = async (d: EventDraft) => {
+    const headers = { "Content-Type": "application/json" };
+    const body = JSON.stringify({
+      title: d.title,
+      start: d.start.toISOString(),
+      end: d.end.toISOString(),
+      location: d.location ?? null,
+      description: d.description ?? null,
+      recurrence: d.recurrence ?? null,
+    });
+    const res =
+      d.id && d.accountId
+        ? await fetch(
+            `/api/google/events/${d.id}?${new URLSearchParams({
+              accountId: d.accountId,
+              calendarId: d.calendarId ?? "primary",
+            }).toString()}`,
+            { method: "PATCH", headers, body }
+          )
+        : await fetch(`/api/google/events`, { method: "POST", headers, body });
+    if (!res.ok) toast("Couldn't save the event", "error");
+    setDraft(null);
+    clearEventsCache();
+    load(true);
+  };
+
+  const deleteEvent = async (d: EventDraft) => {
+    if (d.id && d.accountId) {
+      const q = new URLSearchParams({ accountId: d.accountId, calendarId: d.calendarId ?? "primary" });
+      const res = await fetch(`/api/google/events/${d.id}?${q.toString()}`, { method: "DELETE" });
+      if (!res.ok) toast("Couldn't delete the event", "error");
+    }
+    setDraft(null);
+    clearEventsCache();
+    load(true);
+  };
+
+  const convertEventToTask = async (d: EventDraft) => {
+    const { error } = await supabase.from("tasks").insert({
+      title: d.title,
+      due_date: d.start.toISOString().slice(0, 10),
+      due_kind: "day",
+      priority: 0,
+      shared: false,
+    });
+    if (error) return toast(error.message, "error");
+    toast(`Added task "${d.title}"`);
+    setDraft(null);
+    load(true);
+  };
+
+  const jumpToDay = (day: Date) => {
+    router.push(`/app?date=${format(day, "yyyy-MM-dd")}&view=day`);
+  };
+
+  const onDropOnDay = async (e: React.DragEvent, day: Date) => {
+    e.preventDefault();
+    const raw = e.dataTransfer.getData("application/json");
+    if (!raw) return;
+    let data: { kind: "task" | "event"; id: string; calendarId?: string; accountId?: string };
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const dayStr = format(day, "yyyy-MM-dd");
+    if (data.kind === "task") {
+      const { error } = await supabase.from("tasks").update({ due_date: dayStr }).eq("id", data.id);
+      if (error) return toast(error.message, "error");
+      load(true);
+      return;
+    }
+    const ev = events.find((x) => x.id === data.id && x.calendarId === data.calendarId);
+    if (!ev || !ev.accountId) return;
+    const oldStart = parseISO(ev.start);
+    const oldEnd = parseISO(ev.end);
+    const durMs = oldEnd.getTime() - oldStart.getTime();
+    const newStart = new Date(day);
+    newStart.setHours(oldStart.getHours(), oldStart.getMinutes(), 0, 0);
+    const newEnd = new Date(newStart.getTime() + durMs);
+    const q = new URLSearchParams({ accountId: ev.accountId, calendarId: ev.calendarId });
+    const res = await fetch(`/api/google/events/${ev.id}?${q.toString()}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start: newStart.toISOString(), end: newEnd.toISOString() }),
+    });
+    if (!res.ok) return toast("Couldn't move the event", "error");
+    clearEventsCache();
+    load(true);
+  };
+
   const completeTask = async (t: Task) => {
     // Optimistic — checking a task off shouldn't wait on a round trip.
     setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: true } : x)));
@@ -167,10 +315,21 @@ export default function AgendaView() {
     .filter((t) => !t.due_date)
     .sort((a, b) => (a.priority || 99) - (b.priority || 99));
 
-  const TaskRow = ({ t, showDue }: { t: Task; showDue?: boolean }) => {
+  const TaskRow = ({ t, showDue, draggable }: { t: Task; showDue?: boolean; draggable?: boolean }) => {
     const chip = t.due_date ? dueChip(t.due_date, t.due_kind ?? "day") : null;
     return (
-      <div className="group flex items-center gap-2.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5">
+      <div
+        draggable={draggable}
+        onDragStart={
+          draggable
+            ? (e) => e.dataTransfer.setData("application/json", JSON.stringify({ kind: "task", id: t.id }))
+            : undefined
+        }
+        className={clsx(
+          "group flex items-center gap-2.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
+          draggable && "cursor-grab active:cursor-grabbing"
+        )}
+      >
         <button
           onClick={() => completeTask(t)}
           aria-label={`Mark "${t.title}" done`}
@@ -278,6 +437,12 @@ export default function AgendaView() {
           </div>
           {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-txt3" />}
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setCreating(true)}
+              className="flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:bg-accentSoft"
+            >
+              <Plus className="h-3.5 w-3.5" /> Task
+            </button>
             <input
               type="date"
               value={toISODate(anchor)}
@@ -296,6 +461,13 @@ export default function AgendaView() {
               {mode === "week" ? title : format(anchor, "EEEE, MMM d")}
             </h1>
             {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-txt3" />}
+            <button
+              onClick={() => setCreating(true)}
+              aria-label="Add task"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white active:opacity-80"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
             <button
               onClick={() => setTasksOpen(true)}
               aria-label="Tasks"
@@ -391,12 +563,9 @@ export default function AgendaView() {
             {days.map((day) => {
               const dayStr = format(day, "yyyy-MM-dd");
               const isToday = dayStr === todayStr;
-              const dayEvents =
-                mode === "day"
-                  ? visibleEvents
-                      .filter((e) => isSameDay(parseISO(e.start), day))
-                      .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start))
-                  : [];
+              const dayEvents = visibleEvents
+                .filter((e) => isSameDay(parseISO(e.start), day))
+                .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start));
               const dayTasks = openTasks
                 .filter(
                   (t) =>
@@ -415,7 +584,12 @@ export default function AgendaView() {
               const emptyDay = dayEvents.length === 0 && dayTasks.length === 0 && daySharedEvents.length === 0;
 
               return (
-                <div key={dayStr} className="mb-5">
+                <div
+                  key={dayStr}
+                  className="mb-5"
+                  onDragOver={mode === "week" ? (e) => e.preventDefault() : undefined}
+                  onDrop={mode === "week" ? (e) => onDropOnDay(e, day) : undefined}
+                >
                   <div className="mb-2 flex items-baseline gap-2 border-b border-border pb-1">
                     <span
                       className={clsx(
@@ -426,17 +600,48 @@ export default function AgendaView() {
                       {isToday ? "Today" : format(day, "EEEE")}
                     </span>
                     <span className="text-xs text-txt3">{format(day, "MMM d")}</span>
-                    {emptyDay && <span className="ml-auto text-xs text-txt3">Nothing scheduled</span>}
+                    {emptyDay && mode === "day" && <span className="ml-auto text-xs text-txt3">Nothing scheduled</span>}
+                    {mode === "week" && (
+                      <button
+                        onClick={() => jumpToDay(day)}
+                        title="Open this day to edit, add, or delete"
+                        className={clsx(
+                          "flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-txt3 hover:bg-surface2 hover:text-accent",
+                          emptyDay ? "" : "ml-auto"
+                        )}
+                      >
+                        Open day <ArrowUpRight className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
 
                   {dayTasks.map((t) => (
-                    <TaskRow key={t.id} t={t} showDue={(t.due_kind ?? "day") === "week"} />
+                    <TaskRow
+                      key={t.id}
+                      t={t}
+                      showDue={(t.due_kind ?? "day") === "week"}
+                      draggable={mode === "week"}
+                    />
                   ))}
 
                   {dayEvents.map((e) => (
                     <div
                       key={`${e.calendarId}:${e.id}`}
-                      className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5"
+                      onClick={() => openEvent(e)}
+                      draggable={mode === "week"}
+                      onDragStart={
+                        mode === "week"
+                          ? (ev) =>
+                              ev.dataTransfer.setData(
+                                "application/json",
+                                JSON.stringify({ kind: "event", id: e.id, calendarId: e.calendarId })
+                              )
+                          : undefined
+                      }
+                      className={clsx(
+                        "flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
+                        mode === "week" && "cursor-grab active:cursor-grabbing"
+                      )}
                     >
                       <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
                         {e.allDay ? "All day" : fmtTime(parseISO(e.start))}
@@ -459,6 +664,7 @@ export default function AgendaView() {
                               href={e.meetingLink}
                               target="_blank"
                               rel="noreferrer"
+                              onClick={(ev) => ev.stopPropagation()}
                               className="flex shrink-0 items-center gap-1 text-accentSoft hover:underline"
                             >
                               <Video className="h-3 w-3" /> Join
@@ -524,6 +730,28 @@ export default function AgendaView() {
             <div className="h-[calc(100%-49px)]">{taskPanel}</div>
           </aside>
         </div>
+      )}
+
+      {creating && (
+        <TaskModal
+          task={null}
+          mode="create"
+          projects={projectNames}
+          currentUserId={currentUserId}
+          defaultDueDate={toISODate(anchor)}
+          onSave={createTask}
+          onClose={() => setCreating(false)}
+        />
+      )}
+
+      {draft && (
+        <EventModal
+          draft={draft}
+          onSave={saveEvent}
+          onDelete={draft.id ? () => deleteEvent(draft) : undefined}
+          onConvertToTask={convertEventToTask}
+          onClose={() => setDraft(null)}
+        />
       )}
     </div>
   );

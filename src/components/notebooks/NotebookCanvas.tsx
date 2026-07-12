@@ -7,14 +7,14 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import {
-  drawStroke, hitsStroke, strokeBounds, uid,
+  drawStroke, hitsStroke, strokeBounds, uid, eraseAtPoint,
   HIGHLIGHTER_COLORS, HIGHLIGHTER_SIZES, PEN_COLORS, PEN_SIZES,
-  type Stroke, type Tool,
+  type Stroke, type Tool, type ShapeKind, type InkPoint,
 } from "@/lib/ink";
 import { paintTemplate } from "@/lib/notebooks";
 import type { NotebookPageElement, NotebookPageTemplate } from "@/lib/types";
+import ColorWheel from "@/components/notebooks/ColorWheel";
 
-type ShapeKind = "line" | "rect" | "ellipse";
 type NotebookTool = Tool | "select" | "text" | "image" | `shape-${ShapeKind}`;
 
 /** Point-in-polygon (ray casting). Used to test if a stroke's sample points
@@ -126,6 +126,15 @@ export default function NotebookCanvas({
   const lassoPoints = useRef<[number, number][]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const dragSel = useRef<{ x: number; y: number } | null>(null);
+  const lassoResize = useRef<{
+    startX: number;
+    startY: number;
+    anchorX: number;
+    anchorY: number;
+    startW: number;
+    startH: number;
+    orig: Map<string, { points: InkPoint[]; size: number }>;
+  } | null>(null);
 
   // shape drag-to-draw
   const shapeStart = useRef<[number, number] | null>(null);
@@ -238,9 +247,27 @@ export default function NotebookCanvas({
     (e.pointerType === "pen" && (e.buttons & 2) !== 0);
 
   const eraseAt = (x: number, y: number) => {
-    const before = strokes.current.length;
-    strokes.current = strokes.current.filter((s) => !hitsStroke(s, x, y, eraserSize));
-    if (strokes.current.length !== before) {
+    // layer priority: if any highlighter strokes are touched, erase only
+    // those this pass (matches GoodNotes — highlight erases before ink)
+    const hlHit = strokes.current.some((s) => s.tool === "highlighter" && hitsStroke(s, x, y, eraserSize));
+    const targetTool: Stroke["tool"] | null = hlHit ? "highlighter" : null;
+
+    let changed = false;
+    const next: Stroke[] = [];
+    for (const s of strokes.current) {
+      if (targetTool && s.tool !== targetTool) {
+        next.push(s);
+        continue;
+      }
+      if (!hitsStroke(s, x, y, eraserSize)) {
+        next.push(s);
+        continue;
+      }
+      changed = true;
+      next.push(...eraseAtPoint(s, x, y, eraserSize));
+    }
+    if (changed) {
+      strokes.current = next;
       redrawBase();
       commit();
     }
@@ -248,11 +275,11 @@ export default function NotebookCanvas({
 
   const liveCtxRef = useRef<CanvasRenderingContext2D | null>(null);
 
-  const drawLivePreview = (points: [number, number, number][], color: string, size: number) => {
+  const drawLivePreview = (points: [number, number, number][], color: string, size: number, shape?: ShapeKind) => {
     const ctx = liveCtxRef.current;
     if (!ctx) return;
     ctx.clearRect(0, 0, width, height);
-    drawStroke(ctx, { id: "preview", tool: "pen", color, size, points });
+    drawStroke(ctx, { id: "preview", tool: "pen", color, size, points, shape });
   };
 
   const beginPinch = () => {
@@ -399,7 +426,7 @@ export default function NotebookCanvas({
       const [x, y] = toPage(e);
       const [x0, y0] = shapeStart.current;
       const kind = tool.replace("shape-", "") as ShapeKind;
-      drawLivePreview(shapePoints(kind, x0, y0, x, y), penColor, penSize);
+      drawLivePreview(shapePoints(kind, x0, y0, x, y), penColor, penSize, kind);
       return;
     }
 
@@ -482,7 +509,7 @@ export default function NotebookCanvas({
       const kind = tool.replace("shape-", "") as ShapeKind;
       const points = shapePoints(kind, x0, y0, x, y);
       if (dist(x0, y0, x, y) > 3) {
-        strokes.current.push({ id: uid(), tool: "pen", color: penColor, size: penSize, points });
+        strokes.current.push({ id: uid(), tool: "pen", color: penColor, size: penSize, points, shape: kind });
         commit();
       }
       const ctx = setupCanvas(liveRef.current);
@@ -520,6 +547,67 @@ export default function NotebookCanvas({
     setSelected(new Set());
     redrawBase();
     commit();
+  };
+
+  /* ---------------- lasso resize (scale selected strokes from a corner handle) ---------------- */
+  const selectionBounds = () => {
+    const sel = strokes.current.filter((s) => selected.has(s.id));
+    if (!sel.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const s of sel) {
+      const b = strokeBounds(s);
+      if (b.minX < minX) minX = b.minX;
+      if (b.minY < minY) minY = b.minY;
+      if (b.maxX > maxX) maxX = b.maxX;
+      if (b.maxY > maxY) maxY = b.maxY;
+    }
+    return { minX, minY, maxX, maxY };
+  };
+
+  const startLassoResize = (e: React.PointerEvent) => {
+    const b = selectionBounds();
+    if (!b) return;
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const orig = new Map<string, { points: InkPoint[]; size: number }>();
+    for (const s of strokes.current) {
+      if (selected.has(s.id)) orig.set(s.id, { points: s.points.map((p) => [...p] as InkPoint), size: s.size });
+    }
+    lassoResize.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      anchorX: b.minX,
+      anchorY: b.minY,
+      startW: Math.max(1, b.maxX - b.minX),
+      startH: Math.max(1, b.maxY - b.minY),
+      orig,
+    };
+  };
+  const onLassoResizeMove = (e: React.PointerEvent) => {
+    const rz = lassoResize.current;
+    if (!rz) return;
+    const dx = (e.clientX - rz.startX) / scale;
+    const dy = (e.clientY - rz.startY) / scale;
+    const sx = Math.max(0.1, (rz.startW + dx) / rz.startW);
+    const sy = Math.max(0.1, (rz.startH + dy) / rz.startH);
+    const g = Math.sqrt(sx * sy);
+    strokes.current = strokes.current.map((s) => {
+      const o = rz.orig.get(s.id);
+      if (!o) return s;
+      return {
+        ...s,
+        points: o.points.map(([px, py, p]) => [rz.anchorX + (px - rz.anchorX) * sx, rz.anchorY + (py - rz.anchorY) * sy, p] as InkPoint),
+        size: Math.max(1, o.size * g),
+      };
+    });
+    redrawBase();
+    force((n) => n + 1);
+  };
+  const endLassoResize = () => {
+    if (lassoResize.current) {
+      lassoResize.current = null;
+      commit();
+    }
   };
 
   const undo = () => {
@@ -631,6 +719,7 @@ export default function NotebookCanvas({
                 <Swatch key={c} color={c} active={c === penColor} onClick={() => setPenColor(c)} />
               ))}
               <CustomColorSwatch onPick={(c) => { setPenColor(c); addCustomColor(c); }} />
+              <ColorWheel onPick={(c) => { setPenColor(c); addCustomColor(c); }} />
               {recentColors.map((c) => (
                 <Swatch key={c} color={c} active={c === penColor} onClick={() => setPenColor(c)} />
               ))}
@@ -643,6 +732,7 @@ export default function NotebookCanvas({
                 <Swatch key={c} color={c} active={c === hlColor} onClick={() => setHlColor(c)} />
               ))}
               <CustomColorSwatch onPick={(c) => { setHlColor(c); addCustomColor(c); }} />
+              <ColorWheel onPick={(c) => { setHlColor(c); addCustomColor(c); }} />
               <SizePicker sizes={HIGHLIGHTER_SIZES} value={hlSize} onChange={setHlSize} />
             </>
           )}
@@ -654,6 +744,7 @@ export default function NotebookCanvas({
               {PEN_COLORS.map((c) => (
                 <Swatch key={c} color={c} active={c === penColor} onClick={() => setPenColor(c)} />
               ))}
+              <ColorWheel onPick={(c) => { setPenColor(c); addCustomColor(c); }} />
               <SizePicker sizes={PEN_SIZES} value={penSize} onChange={setPenSize} />
             </>
           )}
@@ -730,6 +821,31 @@ export default function NotebookCanvas({
                 resizeRef={resizeEl}
               />
             ))}
+
+            {!readOnly && tool === "select" && selected.size > 0 && (() => {
+              const b = selectionBounds();
+              if (!b) return null;
+              return (
+                <div
+                  className="pointer-events-none absolute border border-dashed border-accent"
+                  style={{
+                    left: b.minX * scale,
+                    top: b.minY * scale,
+                    width: (b.maxX - b.minX) * scale,
+                    height: (b.maxY - b.minY) * scale,
+                  }}
+                >
+                  <div
+                    onPointerDown={startLassoResize}
+                    onPointerMove={onLassoResizeMove}
+                    onPointerUp={endLassoResize}
+                    onPointerCancel={endLassoResize}
+                    title="Resize selection"
+                    className="pointer-events-auto absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-accent bg-white"
+                  />
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
