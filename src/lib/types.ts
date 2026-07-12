@@ -88,6 +88,7 @@ export type Task = {
   rrule: string | null;
   due_kind: "day" | "week";
   project: string | null;
+  location: string | null;
   parent_id: string | null;
   tags: string[] | null;
   estimate_minutes: number | null;

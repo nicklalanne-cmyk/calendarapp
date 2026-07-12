@@ -157,6 +157,7 @@ export default function AgendaView() {
       priority: d.priority,
       rrule: d.rrule,
       project: d.project,
+      location: d.location,
       tags: d.tags,
       estimate_minutes: d.estimate_minutes,
       notes: d.notes,
@@ -180,6 +181,7 @@ export default function AgendaView() {
       priority: d.priority,
       rrule: d.rrule,
       project: d.project,
+      location: d.location,
       tags: d.tags,
       estimate_minutes: d.estimate_minutes,
       notes: d.notes,
@@ -193,6 +195,24 @@ export default function AgendaView() {
     const { error } = await supabase.from("tasks").update(patch).eq("id", t.id);
     if (error) return toast(error.message, "error");
     setEditingTask(null);
+    load(true);
+  };
+
+  const addFollowUp = async (
+    source: { title: string; project?: string | null },
+    dueDate: string,
+    dueKind: "day" | "week"
+  ) => {
+    const { error } = await supabase.from("tasks").insert({
+      title: `Follow up: ${source.title}`,
+      due_date: dueDate,
+      due_kind: dueKind,
+      priority: 0,
+      project: source.project ?? null,
+      shared: false,
+    });
+    if (error) return toast(error.message, "error");
+    toast(`Follow-up added for ${dueDate}`);
     load(true);
   };
 
@@ -398,6 +418,11 @@ export default function AgendaView() {
         >
           {t.title}
         </span>
+        {t.location && (
+          <span title={t.location} className="shrink-0">
+            <MapPin className="h-3 w-3 text-txt3" />
+          </span>
+        )}
         {showDue && chip && (
           <span
             className={clsx(
@@ -421,8 +446,13 @@ export default function AgendaView() {
     const dayEvents = visibleEvents
       .filter((e) => isSameDay(parseISO(e.start), day))
       .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start));
+    // A week-kind task's due_date is stored as the Sunday that starts its
+    // week — show it on every day of that week, not just the Sunday.
+    const dayWeekStart = format(startOfWeek(day), "yyyy-MM-dd");
     const dayTasks = openTasks
-      .filter((t) => t.due_date === dayStr)
+      .filter((t) =>
+        (t.due_kind ?? "day") === "week" ? t.due_date === dayWeekStart : t.due_date === dayStr
+      )
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
     const daySharedEvents =
       mode === "day"
@@ -501,7 +531,12 @@ export default function AgendaView() {
               </span>
             </div>
             <div className="flex items-center gap-3 pl-4 text-[11px] text-txt3">
-              {e.location && (
+              {e.location && mode === "week" && (
+                <span title={e.location} className="shrink-0">
+                  <MapPin className="h-3 w-3" />
+                </span>
+              )}
+              {e.location && mode !== "week" && (
                 <span className="flex min-w-0 items-center gap-1">
                   <MapPin className="h-3 w-3 shrink-0" />
                   <span className={titleCls}>{e.location}</span>
@@ -867,6 +902,7 @@ export default function AgendaView() {
           onSave={saveEvent}
           onDelete={draft.id ? () => deleteEvent(draft) : undefined}
           onConvertToTask={convertEventToTask}
+          onAddFollowUp={(d, dueDate, dueKind) => addFollowUp({ title: d.title }, dueDate, dueKind)}
           onClose={() => setDraft(null)}
         />
       )}
@@ -882,6 +918,9 @@ export default function AgendaView() {
             deleteTask(editingTask);
             setEditingTask(null);
           }}
+          onAddFollowUp={(dueDate, dueKind) =>
+            addFollowUp({ title: editingTask.title, project: editingTask.project }, dueDate, dueKind)
+          }
           onClose={() => setEditingTask(null)}
         />
       )}

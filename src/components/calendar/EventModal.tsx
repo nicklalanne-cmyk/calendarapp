@@ -9,6 +9,7 @@ import clsx from "clsx";
 import type { Attendee } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
+import FollowUpMenu from "@/components/FollowUpMenu";
 
 export type EventDraft = {
   id?: string;
@@ -57,6 +58,7 @@ export default function EventModal({
   onDelete,
   onClose,
   onConvertToTask,
+  onAddFollowUp,
 }: {
   draft: EventDraft;
   onSave: (d: EventDraft) => void;
@@ -64,6 +66,8 @@ export default function EventModal({
   onClose: () => void;
   /** Creates a task from this event's title/time and closes the modal. */
   onConvertToTask?: (d: EventDraft) => void;
+  /** Creates a new follow-up task due on the picked date/offset. */
+  onAddFollowUp?: (d: EventDraft, dueDate: string, dueKind: "day" | "week") => void;
 }) {
   // Existing events open read-only — you have to explicitly hit Edit to
   // change anything. New events (no id yet) open straight into the form
@@ -347,6 +351,16 @@ export default function EventModal({
                 <Pencil className="h-4 w-4" /> Edit
               </button>
             </div>
+
+            {draft.id && onAddFollowUp && (
+              <div className="mt-2">
+                <FollowUpMenu
+                  base={draft.start}
+                  compact
+                  onPick={(d, k) => onAddFollowUp(draft, d, k)}
+                />
+              </div>
+            )}
           </>
         ) : (
           <>

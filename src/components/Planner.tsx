@@ -248,6 +248,7 @@ export default function Planner() {
       priority: d.priority,
       rrule: d.rrule,
       project: d.project,
+      location: d.location,
       tags: d.tags,
       estimate_minutes: d.estimate_minutes,
       notes: d.notes,
@@ -298,6 +299,7 @@ export default function Planner() {
           title: t.title,
           priority: t.priority,
           project: t.project,
+          location: t.location,
           rrule: t.rrule ?? null,
           repeat: t.rrule ? null : t.repeat,
           tags: t.tags,
@@ -344,6 +346,24 @@ export default function Planner() {
     });
   };
 
+  const addFollowUp = async (
+    source: { title: string; project?: string | null },
+    dueDate: string,
+    dueKind: "day" | "week"
+  ) => {
+    const { error } = await supabase.from("tasks").insert({
+      title: `Follow up: ${source.title}`,
+      due_date: dueDate,
+      due_kind: dueKind,
+      priority: 0,
+      project: source.project ?? null,
+      shared: false,
+    });
+    if (error) return toast(error.message, "error");
+    toast(`Follow-up added for ${dueDate}`);
+    loadTasks();
+  };
+
   const cyclePriority = async (t: Task) => {
     const next = (t.priority + 1) % 5;
     setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, priority: next } : x)));
@@ -368,6 +388,7 @@ export default function Planner() {
           title: t.title,
           priority: t.priority,
           project: t.project,
+          location: t.location,
           rrule: t.rrule ?? null,
           repeat: t.rrule ? null : t.repeat,
           tags: t.tags,
@@ -829,6 +850,7 @@ export default function Planner() {
           onSave={saveEvent}
           onDelete={draft.id ? () => deleteEvent(draft) : undefined}
           onConvertToTask={convertEventToTask}
+          onAddFollowUp={(d, dueDate, dueKind) => addFollowUp({ title: d.title }, dueDate, dueKind)}
           onClose={() => setDraft(null)}
         />
       )}
@@ -843,6 +865,9 @@ export default function Planner() {
             deleteTask(editing);
             setEditing(null);
           }}
+          onAddFollowUp={(dueDate, dueKind) =>
+            addFollowUp({ title: editing.title, project: editing.project }, dueDate, dueKind)
+          }
           onClose={() => setEditing(null)}
         />
       )}

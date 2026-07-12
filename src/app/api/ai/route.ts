@@ -63,6 +63,7 @@ const TOOLS = [
             "Recurrence, RRULE subset. Examples: 'FREQ=DAILY;INTERVAL=1'; 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,WE,FR'; every other Thursday = 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TH'; first Thursday of the month = 'FREQ=MONTHLY;INTERVAL=1;BYDAY=1TH'; last Friday = 'FREQ=MONTHLY;INTERVAL=1;BYDAY=-1FR'; the 15th monthly = 'FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=15'.",
         },
         project: { type: "string" },
+        location: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         estimate_minutes: { type: "number" },
         notes: { type: "string" },
@@ -83,6 +84,7 @@ const TOOLS = [
         priority: { type: "number" },
         rrule: { type: "string", description: "Or null to stop repeating." },
         project: { type: "string" },
+        location: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         estimate_minutes: { type: "number" },
         notes: { type: "string" },
@@ -287,7 +289,7 @@ Rules:
   };
 
   const TASK_COLS =
-    "id,title,notes,is_done,due_date,due_kind,priority,rrule,repeat,project,tags,estimate_minutes,parent_id,scheduled_start,scheduled_end,linked_event_id,linked_event_title";
+    "id,title,notes,is_done,due_date,due_kind,priority,rrule,repeat,project,location,tags,estimate_minutes,parent_id,scheduled_start,scheduled_end,linked_event_id,linked_event_title";
 
   const mutated = { tasks: false, events: false, automations: false };
 
@@ -312,6 +314,7 @@ Rules:
           priority: input.priority ?? 0,
           rrule: input.rrule ?? null,
           project: input.project ?? null,
+          location: input.location ?? null,
           tags: input.tags ?? null,
           estimate_minutes: input.estimate_minutes ?? null,
           notes: input.notes ?? null,
@@ -326,7 +329,7 @@ Rules:
         const patch: Record<string, unknown> = {};
         for (const k of [
           "title", "due_date", "due_kind", "priority", "rrule",
-          "project", "tags", "estimate_minutes", "notes", "is_done",
+          "project", "location", "tags", "estimate_minutes", "notes", "is_done",
         ]) {
           if (k in rest) patch[k] = rest[k];
         }

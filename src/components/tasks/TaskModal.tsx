@@ -8,6 +8,7 @@ import type { Task } from "@/lib/types";
 import { describeRRule, presetsFor, parseRRule, formatRRule, DAY_CODES } from "@/lib/recurrence";
 import { legacyToRRule, startOfWeek } from "@/lib/tasks";
 import { toISODate } from "@/lib/recurrence";
+import FollowUpMenu from "@/components/FollowUpMenu";
 
 const PRIORITY_COLOR = ["#6E6E7A", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -29,6 +30,7 @@ export type TaskDraft = {
   priority: number;
   rrule: string | null;
   project: string | null;
+  location: string | null;
   tags: string[] | null;
   estimate_minutes: number | null;
   notes: string | null;
@@ -52,6 +54,7 @@ export default function TaskModal({
   onClose,
   onSave,
   onDelete,
+  onAddFollowUp,
 }: {
   task: Task | null;
   mode: "create" | "edit";
@@ -63,6 +66,8 @@ export default function TaskModal({
   onClose: () => void;
   onSave: (draft: TaskDraft) => void;
   onDelete?: (t: Task) => void;
+  /** Creates a new follow-up task due on the picked date/offset. */
+  onAddFollowUp?: (dueDate: string, dueKind: "day" | "week") => void;
 }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [dueKind, setDueKind] = useState<"day" | "week">(task?.due_kind ?? "day");
@@ -73,6 +78,7 @@ export default function TaskModal({
   );
   const [custom, setCustom] = useState(false);
   const [project, setProject] = useState(task?.project ?? "");
+  const [location, setLocation] = useState(task?.location ?? "");
   const [estimate, setEstimate] = useState(
     task?.estimate_minutes ? String(task.estimate_minutes) : ""
   );
@@ -132,6 +138,7 @@ export default function TaskModal({
       // detaching a single occurrence: it keeps the edit but stops repeating
       rrule: mode === "edit" && repeats && scope === "occurrence" ? null : rrule,
       project: project.trim() || null,
+      location: location.trim() || null,
       tags: tags.trim() ? tags.split(",").map((t) => t.trim()).filter(Boolean) : null,
       estimate_minutes: estimate ? parseInt(estimate, 10) || null : null,
       notes: notes.trim() || null,
@@ -443,6 +450,16 @@ export default function TaskModal({
           </div>
 
           <div>
+            <label className={label}>Location</label>
+            <input
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Add a location (optional)"
+              className={field}
+            />
+          </div>
+
+          <div>
             <label className={label}>Related meeting</label>
             {linkedEvent ? (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-bg px-2.5 py-2">
@@ -553,6 +570,16 @@ export default function TaskModal({
                 This one stops repeating; the rest of the series carries on.
               </p>
             )}
+          </div>
+        )}
+
+        {mode === "edit" && task && onAddFollowUp && (
+          <div className="border-t border-border px-4 py-3">
+            <FollowUpMenu
+              base={due ? new Date(`${due}T00:00:00`) : new Date()}
+              allowWeek={dueKind === "week"}
+              onPick={(d, k) => onAddFollowUp(d, k)}
+            />
           </div>
         )}
 
