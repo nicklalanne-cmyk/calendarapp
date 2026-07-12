@@ -2,17 +2,13 @@
 import clsx from "clsx";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import VoiceMemo from "@/components/notes/VoiceMemo";
-import InkCanvas from "@/components/notes/InkCanvas";
 import LinkPicker, { type NoteLink } from "@/components/notes/LinkPicker";
 import { renderToPng, type Stroke } from "@/lib/ink";
 import { useSettings } from "@/components/SettingsProvider";
 import { makeDebouncer } from "@/lib/debounce";
-import AudioNote from "@/components/notes/AudioNote";
 import { format } from "date-fns";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   Plus,
   Trash2,
@@ -42,6 +38,20 @@ import { toast } from "@/lib/toast";
 import { recordRecent } from "@/lib/recent";
 import type { Note, Task } from "@/lib/types";
 
+// Ink (perfect-freehand), voice recording, and markdown preview are all
+// heavy-ish and only needed some of the time — dynamic-import them so they
+// aren't parsed/executed on every Notes page load, only when actually used.
+const InkCanvas = dynamic(() => import("@/components/notes/InkCanvas"), {
+  ssr: false,
+  loading: () => <div className="flex-1 p-4 text-sm text-txt3">Loading canvas…</div>,
+});
+const VoiceMemo = dynamic(() => import("@/components/notes/VoiceMemo"), { ssr: false });
+const AudioNote = dynamic(() => import("@/components/notes/AudioNote"), { ssr: false });
+const NotePreview = dynamic(() => import("@/components/notes/NotePreview"), {
+  ssr: false,
+  loading: () => <div className="flex-1 p-4 text-sm text-txt3">Loading preview…</div>,
+});
+
 export default function NotesView() {
   const supabase = createClient();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -58,6 +68,68 @@ export default function NotesView() {
   const [linkedTask, setLinkedTask] = useState<Task | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // --- Undo / redo for the body textarea --------------------------------
+  // The toolbar buttons and auto-list logic below all rewrite `body`
+  // programmatically, which breaks a plain <textarea>'s native undo stack
+  // (React is driving the value, not the user's keystrokes). So Ctrl/⌘+Z
+  // needs its own history instead of relying on the browser. Plain typing
+  // is coalesced into one undo step per pause so Ctrl+Z undoes "the last
+  // sentence you typed", not one character at a time; every toolbar/list
+  // action is always its own step.
+  const history = useRef<string[]>([""]);
+  const histIndex = useRef(0);
+  const lastEditAt = useRef(0);
+
+  const resetHistory = (value: string) => {
+    history.current = [value];
+    histIndex.current = 0;
+    lastEditAt.current = 0;
+  };
+
+  const updateBody = (value: string, boundary = false) => {
+    const now = Date.now();
+    if (histIndex.current < history.current.length - 1) {
+      history.current = history.current.slice(0, histIndex.current + 1);
+    }
+    const coalesce = !boundary && now - lastEditAt.current < 600 && histIndex.current === history.current.length - 1;
+    if (coalesce) {
+      history.current[histIndex.current] = value;
+    } else {
+      history.current.push(value);
+      histIndex.current = history.current.length - 1;
+      if (history.current.length > 200) {
+        history.current.shift();
+        histIndex.current -= 1;
+      }
+    }
+    lastEditAt.current = now;
+    setBody(value);
+  };
+
+  const undo = () => {
+    if (histIndex.current === 0) return;
+    histIndex.current -= 1;
+    const value = history.current[histIndex.current];
+    setBody(value);
+    lastEditAt.current = 0;
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) ta.setSelectionRange(value.length, value.length);
+    });
+  };
+
+  const redo = () => {
+    if (histIndex.current >= history.current.length - 1) return;
+    histIndex.current += 1;
+    const value = history.current[histIndex.current];
+    setBody(value);
+    lastEditAt.current = 0;
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) ta.setSelectionRange(value.length, value.length);
+    });
+  };
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
@@ -92,6 +164,7 @@ export default function NotesView() {
       setActive(n);
       setTitle(n.title);
       setBody(n.body);
+      resetHistory(n.body);
       setPreview(false);
       setLinkedTask(null);
       recordRecent({ kind: "note", id: n.id, label: n.title || "Untitled note", href: `/app/notes?note=${n.id}` });
@@ -226,7 +299,7 @@ export default function NotesView() {
 
       // append rather than overwrite — never destroy what's already typed
       const next = body.trim() ? `${body.trim()}\n\n${text}` : text;
-      setBody(next);
+      updateBody(next, true);
       const { error } = await supabase
         .from("notes")
         .update({ body: next, updated_at: new Date().toISOString() })
@@ -335,7 +408,7 @@ export default function NotesView() {
     if (selected && before === marker && after === marker) {
       const newValue =
         value.slice(0, start - marker.length) + selected + value.slice(end + marker.length);
-      setBody(newValue);
+      updateBody(newValue, true);
       requestAnimationFrame(() => {
         ta.focus();
         ta.selectionStart = start - marker.length;
@@ -346,7 +419,7 @@ export default function NotesView() {
 
     const inner = selected || "text";
     const newValue = value.slice(0, start) + marker + inner + marker + value.slice(end);
-    setBody(newValue);
+    updateBody(newValue, true);
     requestAnimationFrame(() => {
       ta.focus();
       ta.selectionStart = start + marker.length;
@@ -367,7 +440,7 @@ export default function NotesView() {
     const isHeading = /^##\s/.test(line);
     const newLine = isHeading ? line.replace(/^##\s/, "") : `## ${line}`;
     const newValue = value.slice(0, lineStart) + newLine + value.slice(lineEnd);
-    setBody(newValue);
+    updateBody(newValue, true);
     const delta = newLine.length - line.length;
     requestAnimationFrame(() => {
       ta.focus();
@@ -375,15 +448,29 @@ export default function NotesView() {
     });
   };
 
-  // ⌘/Ctrl+B and ⌘/Ctrl+I work from a hardware keyboard too.
+  // ⌘/Ctrl+B, ⌘/Ctrl+I, and ⌘/Ctrl+Z (+Shift for redo, or Ctrl+Y) all work
+  // from a hardware keyboard. Undo/redo run through our own history stack
+  // (see updateBody above) rather than the browser's — a controlled
+  // <textarea> plus programmatic edits from the toolbar makes native
+  // undo unreliable.
   const handleBodyKeyDownFormatting = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!(e.metaKey || e.ctrlKey)) return;
-    if (e.key.toLowerCase() === "b") {
+    const key = e.key.toLowerCase();
+    if (key === "b") {
       e.preventDefault();
       wrapSelection("**");
-    } else if (e.key.toLowerCase() === "i") {
+    } else if (key === "i") {
       e.preventDefault();
       wrapSelection("_");
+    } else if (key === "z" && e.shiftKey) {
+      e.preventDefault();
+      redo();
+    } else if (key === "z") {
+      e.preventDefault();
+      undo();
+    } else if (key === "y") {
+      e.preventDefault();
+      redo();
     }
   };
 
@@ -425,7 +512,7 @@ export default function NotesView() {
 
     const newBlock = newLines.join("\n");
     const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
-    setBody(newValue);
+    updateBody(newValue, true);
     const delta = newBlock.length - block.length;
     requestAnimationFrame(() => {
       ta.focus();
@@ -466,7 +553,7 @@ export default function NotesView() {
     e.preventDefault();
     if (content.trim() === "") {
       const newValue = value.slice(0, lineStart) + value.slice(selectionStart);
-      setBody(newValue);
+      updateBody(newValue, true);
       requestAnimationFrame(() => {
         ta.selectionStart = ta.selectionEnd = lineStart;
       });
@@ -475,7 +562,7 @@ export default function NotesView() {
 
     const insertion = `\n${prefix}`;
     const newValue = value.slice(0, selectionStart) + insertion + value.slice(selectionEnd);
-    setBody(newValue);
+    updateBody(newValue, true);
     requestAnimationFrame(() => {
       const pos = selectionStart + insertion.length;
       ta.selectionStart = ta.selectionEnd = pos;
@@ -493,7 +580,7 @@ export default function NotesView() {
     else if (/- \[[xX]\] /.test(l)) lines[idx] = l.replace(/- \[[xX]\] /, "- [ ] ");
     else return;
     const next = lines.join("\n");
-    setBody(next);
+    updateBody(next, true);
     if (active) {
       supabase
         .from("notes")
@@ -514,6 +601,7 @@ export default function NotesView() {
       setActive(null);
       setTitle("");
       setBody("");
+      resetHistory("");
     }
     load();
 
@@ -793,28 +881,7 @@ export default function NotesView() {
                 transcribing={transcribing}
               />
             ) : preview ? (
-              <div className="prose-cadence flex-1 overflow-y-auto text-sm leading-relaxed">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    input: ({ node, ...props }) => {
-                      if (props.type !== "checkbox") return <input {...props} />;
-                      const line = (node as unknown as { position?: { start?: { line?: number } } })
-                        ?.position?.start?.line;
-                      return (
-                        <input
-                          {...props}
-                          disabled={false}
-                          onChange={() => (line ? toggleCheckboxAtLine(line) : undefined)}
-                          className="mr-1.5 h-3.5 w-3.5 accent-accent"
-                        />
-                      );
-                    },
-                  }}
-                >
-                  {body || "*Nothing yet.*"}
-                </ReactMarkdown>
-              </div>
+              <NotePreview body={body} onToggleCheckbox={toggleCheckboxAtLine} />
             ) : (
               <>
                 <div className="-mx-1 mb-2 flex items-center gap-0.5 overflow-x-auto px-1">
@@ -844,14 +911,14 @@ export default function NotesView() {
                 <textarea
                   ref={textareaRef}
                   value={body}
-                  onChange={(e) => setBody(e.target.value)}
+                  onChange={(e) => updateBody(e.target.value)}
                   onBlur={save}
                   onKeyDown={(e) => {
                     handleBodyKeyDownFormatting(e);
                     if (!e.defaultPrevented) handleBodyKeyDown(e);
                   }}
                   placeholder="Write in markdown — # heading, **bold**, - list, [ ] todo…"
-                  className="flex-1 resize-none bg-transparent font-mono text-[15px] leading-relaxed outline-none placeholder:text-txt3 md:text-sm"
+                  className="flex-1 resize-none bg-transparent text-[15px] leading-relaxed outline-none placeholder:text-txt3 md:text-sm"
                 />
               </>
             )}
