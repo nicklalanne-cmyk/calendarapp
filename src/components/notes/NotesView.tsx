@@ -13,7 +13,24 @@ import AudioNote from "@/components/notes/AudioNote";
 import { format } from "date-fns";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Plus, Trash2, CalendarDays, Eye, Pencil, Link2, ArrowLeft, Mic, PenLine, Type, Unlink, Plus as PlusIcon, CheckSquare } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  CalendarDays,
+  Eye,
+  Pencil,
+  Link2,
+  ArrowLeft,
+  Mic,
+  PenLine,
+  Type,
+  Unlink,
+  Plus as PlusIcon,
+  CheckSquare,
+  List,
+  ListOrdered,
+  ListChecks,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import type { Note, Task } from "@/lib/types";
@@ -32,6 +49,7 @@ export default function NotesView() {
   const { settings } = useSettings();
   const inkDebouncer = useRef(makeDebouncer(900)).current;
   const [linkedTask, setLinkedTask] = useState<Task | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -256,6 +274,122 @@ export default function NotesView() {
     const { data } = await supabase.from("notes").select("*").eq("id", active.id).single();
     if (data) setActive(data as Note);
     toast("Link removed");
+  };
+
+  // --- Easy lists -----------------------------------------------------------
+  // Turns the selected line(s) — or just the current line, if nothing's
+  // selected — into a bullet / numbered / checklist. Clicking the same
+  // button again on an already-listed block toggles the markers back off.
+  const BULLET_RE = /^(\s*)- (?!\[)/;
+  const NUMBER_RE = /^(\s*)\d+\. /;
+  const CHECK_RE = /^(\s*)- \[[ xX]\] /;
+  const ANY_MARKER_RE = /^(\s*)(?:[-*] \[[ xX]\] |[-*] |\d+\. )/;
+
+  const applyList = (kind: "bullet" | "number" | "check") => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const value = body;
+    const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    let lineEnd = value.indexOf("\n", end > start ? end - 1 : end);
+    if (lineEnd === -1) lineEnd = value.length;
+    const block = value.slice(lineStart, lineEnd);
+    const lines = block.split("\n");
+    const matcher = kind === "bullet" ? BULLET_RE : kind === "check" ? CHECK_RE : NUMBER_RE;
+    const nonEmpty = lines.filter((l) => l.trim().length > 0);
+    const alreadyThisKind = nonEmpty.length > 0 && nonEmpty.every((l) => matcher.test(l));
+
+    let counter = 1;
+    const newLines = lines.map((line) => {
+      const m = line.match(ANY_MARKER_RE);
+      const indent = m ? m[1] : (line.match(/^(\s*)/) ?? ["", ""])[1];
+      const text = m ? line.slice(m[0].length) : line.slice(indent.length);
+      if (alreadyThisKind) return `${indent}${text}`;
+      if (line.trim().length === 0) return line;
+      if (kind === "bullet") return `${indent}- ${text}`;
+      if (kind === "check") return `${indent}- [ ] ${text}`;
+      return `${indent}${counter++}. ${text}`;
+    });
+
+    const newBlock = newLines.join("\n");
+    const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
+    setBody(newValue);
+    const delta = newBlock.length - block.length;
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = start;
+      ta.selectionEnd = Math.max(start, end + delta);
+    });
+  };
+
+  // Pressing Enter inside a list item continues the same list on the next
+  // line (bumping numbered-list counters); pressing Enter on an empty item
+  // exits the list instead of adding another empty marker.
+  const handleBodyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    const ta = e.currentTarget;
+    const { selectionStart, selectionEnd, value } = ta;
+    if (selectionStart !== selectionEnd) return;
+    const lineStart = value.lastIndexOf("\n", selectionStart - 1) + 1;
+    const currentLine = value.slice(lineStart, selectionStart);
+
+    const checkMatch = currentLine.match(/^(\s*)- \[[ xX]\] (.*)$/);
+    const bulletMatch = !checkMatch && currentLine.match(/^(\s*)[-*] (.*)$/);
+    const numberMatch = currentLine.match(/^(\s*)(\d+)\. (.*)$/);
+
+    let prefix: string | null = null;
+    let content = "";
+    if (checkMatch) {
+      prefix = `${checkMatch[1]}- [ ] `;
+      content = checkMatch[2];
+    } else if (bulletMatch) {
+      prefix = `${bulletMatch[1]}- `;
+      content = bulletMatch[2];
+    } else if (numberMatch) {
+      prefix = `${numberMatch[1]}${parseInt(numberMatch[2], 10) + 1}. `;
+      content = numberMatch[3];
+    }
+    if (prefix === null) return;
+
+    e.preventDefault();
+    if (content.trim() === "") {
+      const newValue = value.slice(0, lineStart) + value.slice(selectionStart);
+      setBody(newValue);
+      requestAnimationFrame(() => {
+        ta.selectionStart = ta.selectionEnd = lineStart;
+      });
+      return;
+    }
+
+    const insertion = `\n${prefix}`;
+    const newValue = value.slice(0, selectionStart) + insertion + value.slice(selectionEnd);
+    setBody(newValue);
+    requestAnimationFrame(() => {
+      const pos = selectionStart + insertion.length;
+      ta.selectionStart = ta.selectionEnd = pos;
+    });
+  };
+
+  // Lets you tap a "- [ ]" checkbox right in Preview mode instead of
+  // switching to Edit to flip a "x" in by hand.
+  const toggleCheckboxAtLine = (line1Indexed: number) => {
+    const lines = body.split("\n");
+    const idx = line1Indexed - 1;
+    if (idx < 0 || idx >= lines.length) return;
+    const l = lines[idx];
+    if (/- \[ \] /.test(l)) lines[idx] = l.replace("- [ ] ", "- [x] ");
+    else if (/- \[[xX]\] /.test(l)) lines[idx] = l.replace(/- \[[xX]\] /, "- [ ] ");
+    else return;
+    const next = lines.join("\n");
+    setBody(next);
+    if (active) {
+      supabase
+        .from("notes")
+        .update({ body: next, updated_at: new Date().toISOString() })
+        .eq("id", active.id)
+        .then(() => load());
+    }
   };
 
   const remove = async (n: Note) => {
@@ -535,16 +669,68 @@ export default function NotesView() {
               />
             ) : preview ? (
               <div className="prose-cadence flex-1 overflow-y-auto text-sm leading-relaxed">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{body || "*Nothing yet.*"}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    input: ({ node, ...props }) => {
+                      if (props.type !== "checkbox") return <input {...props} />;
+                      const line = (node as unknown as { position?: { start?: { line?: number } } })
+                        ?.position?.start?.line;
+                      return (
+                        <input
+                          {...props}
+                          disabled={false}
+                          onChange={() => (line ? toggleCheckboxAtLine(line) : undefined)}
+                          className="mr-1.5 h-3.5 w-3.5 accent-accent"
+                        />
+                      );
+                    },
+                  }}
+                >
+                  {body || "*Nothing yet.*"}
+                </ReactMarkdown>
               </div>
             ) : (
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                onBlur={save}
-                placeholder="Write in markdown — # heading, **bold**, - list, [ ] todo…"
-                className="flex-1 resize-none bg-transparent font-mono text-[15px] leading-relaxed outline-none placeholder:text-txt3 md:text-sm"
-              />
+              <>
+                <div className="mb-2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => applyList("bullet")}
+                    title="Bullet list"
+                    aria-label="Bullet list"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-7 md:w-7 md:hover:bg-surface"
+                  >
+                    <List className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyList("number")}
+                    title="Numbered list"
+                    aria-label="Numbered list"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-7 md:w-7 md:hover:bg-surface"
+                  >
+                    <ListOrdered className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyList("check")}
+                    title="Checklist"
+                    aria-label="Checklist"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-7 md:w-7 md:hover:bg-surface"
+                  >
+                    <ListChecks className="h-4 w-4" />
+                  </button>
+                </div>
+                <textarea
+                  ref={textareaRef}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  onBlur={save}
+                  onKeyDown={handleBodyKeyDown}
+                  placeholder="Write in markdown — # heading, **bold**, - list, [ ] todo…"
+                  className="flex-1 resize-none bg-transparent font-mono text-[15px] leading-relaxed outline-none placeholder:text-txt3 md:text-sm"
+                />
+              </>
             )}
 
             <div className="mt-3 flex items-center gap-3 text-xs text-txt3">

@@ -51,6 +51,27 @@ export default function AppShell({
     setTheme(t);
   }, []);
 
+  // Mobile keyboards resizing the layout viewport (instead of just overlaying it) is what
+  // caused the notes editor to look "frozen"/glitched: the shell was pinned to 100svh, and
+  // on several Android/iOS browsers that unit doesn't reliably track the keyboard opening,
+  // so the fixed-height flex shell and the focused textarea inside it fight over layout.
+  // Track the real visible height via visualViewport and drive the shell from that instead,
+  // falling back to 100svh (set in the className below) wherever visualViewport is missing.
+  useEffect(() => {
+    const setAppHeight = () => {
+      const vv = window.visualViewport;
+      const h = vv ? vv.height : window.innerHeight;
+      document.documentElement.style.setProperty("--app-height", `${h}px`);
+    };
+    setAppHeight();
+    window.visualViewport?.addEventListener("resize", setAppHeight);
+    window.addEventListener("resize", setAppHeight);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", setAppHeight);
+      window.removeEventListener("resize", setAppHeight);
+    };
+  }, []);
+
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);
@@ -124,7 +145,10 @@ export default function AppShell({
   );
 
   return (
-    <div className="flex h-[100svh] w-full overflow-hidden bg-bg text-txt">
+    <div
+      className="flex h-[100svh] w-full overflow-hidden bg-bg text-txt"
+      style={{ height: "var(--app-height, 100svh)" }}
+    >
       {/* ---------------- desktop rail ---------------- */}
       <nav className="hidden w-16 shrink-0 flex-col items-center gap-1 border-r border-border py-4 md:flex">
         <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-xl bg-accent/20 text-accent">
