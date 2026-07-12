@@ -549,6 +549,7 @@ export default function AgendaView() {
 
   const taskPanel = (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
+      <p className="text-[11px] uppercase tracking-wide text-txt3">Your open tasks</p>
       <Bucket title="Overdue" count={overdue.length} danger>
         {overdue.map((t) => (
           <TaskRow key={t.id} t={t} showDue />
@@ -564,6 +565,11 @@ export default function AgendaView() {
           <TaskRow key={t.id} t={t} />
         ))}
       </Bucket>
+      {overdue.length === 0 && inRange.length === 0 && unscheduled.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-txt3">
+          No open tasks right now. New tasks (overdue, due this range, or with no due date) show up here.
+        </div>
+      )}
     </div>
   );
 
@@ -754,9 +760,16 @@ export default function AgendaView() {
               <div className="mx-auto max-w-3xl p-4 md:hidden">
                 {days.map((day) => renderDayCell(day, false))}
               </div>
-              {/* desktop: 7 columns side by side, so the whole week is visible at once */}
-              <div className="hidden h-full grid-cols-7 gap-3 p-4 md:grid md:p-6">
-                {days.map((day) => renderDayCell(day, true))}
+              {/* desktop: 7 columns side by side, so the whole week is visible at once.
+                  Fixed min-width columns (not an equal-fraction grid) so text always has
+                  real room to wrap into words instead of collapsing to one letter per line
+                  on any screen narrower than ~1600px; the row scrolls horizontally instead. */}
+              <div className="hidden h-full gap-3 overflow-x-auto p-4 md:flex md:p-6">
+                {days.map((day) => (
+                  <div key={day.toISOString()} className="w-[220px] shrink-0">
+                    {renderDayCell(day, true)}
+                  </div>
+                ))}
               </div>
             </>
           ) : (
