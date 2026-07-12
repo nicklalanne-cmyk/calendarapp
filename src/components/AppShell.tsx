@@ -15,6 +15,7 @@ import {
   Sparkles,
   Menu,
   Table2,
+  BookOpen,
   Timer,
   MessageSquarePlus,
   Inbox,
@@ -126,6 +127,7 @@ export default function AppShell({
     { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
     { href: "/app/notes", label: "Notes", icon: StickyNote },
     { href: "/app/pages", label: "Pages", icon: Table2 },
+    { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
     { href: "/app/focus", label: "Focus", icon: Timer },
   ];
   const mobileNav = [nav[0], nav[1], nav[2], nav[3]]; // Planner, Agenda, Notes, Pages
@@ -394,6 +396,14 @@ export default function AppShell({
                   }}
                 />
               )}
+              <SheetRow
+                icon={<BookOpen className="h-[18px] w-[18px]" />}
+                label="Notebooks"
+                onClick={() => {
+                  setSheet(false);
+                  router.push("/app/notebooks");
+                }}
+              />
               <SheetRow
                 icon={<Timer className="h-[18px] w-[18px]" />}
                 label="Focus timer"

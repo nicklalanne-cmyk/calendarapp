@@ -1,3 +1,44 @@
+export type NotebookPageTemplate = "blank" | "lined" | "grid" | "dotted" | "pdf";
+
+export type Notebook = {
+  id: string;
+  user_id: string;
+  title: string;
+  color: string;
+  icon: string | null;
+  position: number;
+  pinned_at: string | null;
+  shared: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+export type NotebookPdf = {
+  id: string;
+  notebook_id: string;
+  user_id: string;
+  storage_path: string;
+  filename: string;
+  page_count: number;
+  created_at: string;
+};
+
+export type NotebookPage = {
+  id: string;
+  notebook_id: string;
+  user_id: string;
+  position: number;
+  template: NotebookPageTemplate;
+  pdf_id: string | null;
+  pdf_page_index: number | null;
+  width: number;
+  height: number;
+  strokes: import("@/lib/ink").Stroke[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type Task = {
   id: string;
   user_id: string;

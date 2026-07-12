@@ -21,6 +21,7 @@ import {
   Star,
   History,
   X,
+  BookOpen,
 } from "lucide-react";
 
 type Cmd = {
@@ -76,7 +77,7 @@ export default function CommandBar({ open, onClose }: { open: boolean; onClose: 
       getRecents().map((r) => ({
         id: `recent-${r.kind}-${r.id}`,
         label: r.label,
-        icon: r.kind === "note" ? StickyNote : r.kind === "page" ? Table2 : ListTodo,
+        icon: r.kind === "note" ? StickyNote : r.kind === "page" ? Table2 : r.kind === "notebook" ? BookOpen : ListTodo,
         keywords: "",
         section: "recent",
         run: () => go(r.href),
@@ -132,6 +133,7 @@ export default function CommandBar({ open, onClose }: { open: boolean; onClose: 
       { id: "nav-agenda", label: "Go to Agenda", icon: CalendarRange, keywords: "agenda list upcoming", run: () => go("/app/agenda") },
       { id: "nav-notes", label: "Go to Notes", icon: StickyNote, keywords: "notes", run: () => go("/app/notes") },
       { id: "nav-pages", label: "Go to Pages", icon: Table2, keywords: "pages database records", run: () => go("/app/pages") },
+      { id: "nav-notebooks", label: "Go to Notebooks", icon: BookOpen, keywords: "notebooks goodnotes pdf annotate draw", run: () => go("/app/notebooks") },
       { id: "nav-cal", label: "Go to Calendars", icon: Link2, keywords: "calendars accounts connect google", run: () => go("/app/accounts") },
       { id: "today", label: "Jump to today", icon: Sun, keywords: "today now", run: () => plannerAction(() => dispatch("cadence:go-today")) },
       { id: "view-day", label: "Day view", icon: CalendarDays, keywords: "day view", run: () => plannerAction(() => dispatch("cadence:set-view", "day")) },
@@ -165,7 +167,7 @@ export default function CommandBar({ open, onClose }: { open: boolean; onClose: 
     }
     const h = setTimeout(async () => {
       const supabase = createClient();
-      const [tasksR, notesR, pagesR, recordsR] = await Promise.all([
+      const [tasksR, notesR, pagesR, recordsR, notebooksR] = await Promise.all([
         supabase.from("tasks").select("id, title").ilike("title", `%${q}%`).is("deleted_at", null).limit(6),
         supabase
           .from("notes")
@@ -179,6 +181,12 @@ export default function CommandBar({ open, onClose }: { open: boolean; onClose: 
           .select("id, title, props, page_id, pages(title, icon)")
           .is("deleted_at", null)
           .limit(400),
+        supabase
+          .from("notebooks")
+          .select("id, title")
+          .is("deleted_at", null)
+          .ilike("title", `%${q}%`)
+          .limit(6),
       ]);
 
       const r: Cmd[] = [];
@@ -214,6 +222,22 @@ export default function CommandBar({ open, onClose }: { open: boolean; onClose: 
           keywords: "",
           run: () =>
             go("/app/pages/" + pg.id, { kind: "page", id: pg.id, label: pg.title, href: "/app/pages/" + pg.id }),
+        })
+      );
+
+      ((notebooksR.data as { id: string; title: string }[] | null) ?? []).forEach((nb) =>
+        r.push({
+          id: "notebook-" + nb.id,
+          label: "Notebook · " + (nb.title || "Untitled"),
+          icon: BookOpen,
+          keywords: "",
+          run: () =>
+            go("/app/notebooks/" + nb.id, {
+              kind: "notebook",
+              id: nb.id,
+              label: nb.title || "Untitled",
+              href: "/app/notebooks/" + nb.id,
+            }),
         })
       );
 

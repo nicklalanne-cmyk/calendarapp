@@ -2,7 +2,7 @@
 // (localStorage, not a DB table) — this is a per-device convenience list, not
 // data anyone needs synced or backed up. Newest first, capped, deduped by id.
 
-export type RecentKind = "note" | "page" | "task";
+export type RecentKind = "note" | "page" | "task" | "notebook";
 
 export type RecentItem = {
   kind: RecentKind;
