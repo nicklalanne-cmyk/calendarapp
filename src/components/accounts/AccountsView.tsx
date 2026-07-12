@@ -41,7 +41,7 @@ export default function AccountsView() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
+    <div className="mx-auto h-full max-w-2xl overflow-y-auto p-4 md:p-8">
       <h1 className="text-2xl font-semibold">Connected calendars</h1>
       <p className="mt-2 text-sm text-txt2">
         Connect one or more Google accounts. Cadence imports the calendars you have visible in each,
@@ -89,15 +89,16 @@ export default function AccountsView() {
               {!a.is_default && (
                 <button
                   onClick={() => makeDefault(a.id)}
-                  className="rounded-md border border-border px-2 py-1 text-xs text-txt2 hover:bg-surface2"
+                  className="rounded-md border border-border px-2.5 py-2 text-xs text-txt2 active:bg-surface2 md:py-1"
                 >
                   Make default
                 </button>
               )}
               <button
                 onClick={() => disconnect(a.id)}
-                className="rounded-md p-1 text-txt3 hover:text-danger"
+                aria-label="Disconnect"
                 title="Disconnect"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-txt3 active:bg-surface2 hover:text-danger md:h-auto md:w-auto md:p-1"
               >
                 <Trash2 className="h-4 w-4" />
               </button>

@@ -21,9 +21,15 @@ export default function RecordSheet({
   dateMenuFor?: (r: PageRecord, p: PageProperty) => React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center">
+    // height tracks --app-height (kept in sync by AppShell via visualViewport) rather
+    // than the viewport directly, so a keyboard opening under a text field here can't
+    // squeeze/clip the sheet the way a bare 100vh/85vh pair would on some browsers.
+    <div
+      className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center"
+      style={{ height: "var(--app-height, 100dvh)" }}
+    >
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-4 pb-8 md:max-w-md md:rounded-2xl md:border md:pb-4">
+      <div className="relative max-h-[85%] w-full overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-4 pb-8 md:max-h-[85vh] md:max-w-md md:rounded-2xl md:border md:pb-4">
         <div className="mb-4 flex items-start gap-2">
           <input
             value={record.title}

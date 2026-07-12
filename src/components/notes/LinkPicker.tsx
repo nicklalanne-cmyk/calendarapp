@@ -111,9 +111,12 @@ export default function LinkPicker({
     });
 
   return (
-    <div className="fixed inset-0 z-[75] flex items-end md:items-center md:justify-center">
+    <div
+      className="fixed inset-0 z-[75] flex items-end md:items-center md:justify-center"
+      style={{ height: "var(--app-height, 100dvh)" }}
+    >
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative flex max-h-[80vh] w-full flex-col rounded-t-2xl border-t border-border bg-surface md:max-w-md md:rounded-2xl md:border">
+      <div className="relative flex max-h-[80%] w-full flex-col rounded-t-2xl border-t border-border bg-surface md:max-h-[80vh] md:max-w-md md:rounded-2xl md:border">
         <div className="flex items-center gap-2 border-b border-border p-3">
           <h2 className="text-sm font-semibold">{title}</h2>
           <button

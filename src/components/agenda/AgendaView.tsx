@@ -116,9 +116,10 @@ export default function AgendaView() {
       <div className="group flex items-center gap-2.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5">
         <button
           onClick={() => completeTask(t)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-txt3 transition active:bg-accent active:text-white hover:border-accent md:h-[18px] md:w-[18px] md:border md:hover:bg-accent md:hover:text-white"
+          aria-label={`Mark "${t.title}" done`}
+          className="-m-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-txt3 p-1.5 transition active:bg-accent active:text-white md:m-0 md:h-[18px] md:w-[18px] md:border md:p-0 md:hover:border-accent md:hover:bg-accent md:hover:text-white"
         >
-          <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 md:h-2.5 md:w-2.5" />
+          <Check className="h-4 w-4 opacity-40 active:opacity-100 md:h-2.5 md:w-2.5 md:opacity-0 md:group-hover:opacity-100" />
         </button>
         {t.priority > 0 && (
           <Flag

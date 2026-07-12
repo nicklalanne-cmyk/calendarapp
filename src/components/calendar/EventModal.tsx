@@ -124,10 +124,11 @@ export default function EventModal({
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-6"
+      style={{ height: "var(--app-height, 100dvh)" }}
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface2 p-5 shadow-2xl"
+        className="max-h-[85%] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface2 p-5 shadow-2xl md:max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-1 text-lg font-semibold">{draft.id ? "Edit event" : "New event"}</h3>

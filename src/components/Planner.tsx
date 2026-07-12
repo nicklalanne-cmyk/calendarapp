@@ -587,44 +587,48 @@ export default function Planner() {
       )}
 
       <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <header className="flex items-center gap-1.5 border-b border-border px-2 py-1.5 md:gap-2 md:px-3 md:py-2">
           <button
             onClick={() => setTasksOpen(true)}
-            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-txt2 md:hidden"
+            aria-label={`Open task list — ${openCount} open`}
+            className="flex h-11 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-txt2 active:bg-surface2 md:hidden"
           >
-            <ListTodo className="h-[18px] w-[18px] md:h-4 md:w-4" />
+            <ListTodo className="h-[18px] w-[18px]" />
             {openCount}
           </button>
           <h1 className="truncate text-base font-semibold md:text-lg">{periodLabel}</h1>
           {loadingEvents && <Loader2 className="h-3.5 w-3.5 animate-spin text-txt3" />}
           <button
             onClick={() => setDate(new Date())}
-            className="hidden rounded-md border border-border px-2 py-1 text-xs text-txt2 hover:bg-surface sm:block"
+            aria-label="Jump to today"
+            className="flex h-11 items-center rounded-lg border border-border px-2.5 text-xs font-medium text-txt2 active:bg-surface2 md:h-auto md:rounded-md md:px-2 md:py-1 md:hover:bg-surface"
           >
             Today
           </button>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-0.5 md:gap-1">
             <button
               onClick={() => shift(-1)}
-              className="rounded-lg p-2 text-txt2 active:bg-surface2 md:p-1 md:hover:bg-surface"
+              aria-label="Previous"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-auto md:w-auto md:p-1 md:hover:bg-surface"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
             <button
               onClick={() => shift(1)}
-              className="rounded-lg p-2 text-txt2 active:bg-surface2 md:p-1 md:hover:bg-surface"
+              aria-label="Next"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-auto md:w-auto md:p-1 md:hover:bg-surface"
             >
               <ChevronRight className="h-5 w-5" />
             </button>
-            <div className="ml-1 flex overflow-hidden rounded-md border border-border text-[13px] md:text-xs">
+            <div className="ml-1 flex h-11 overflow-hidden rounded-lg border border-border text-[13px] md:h-auto md:rounded-md md:text-xs">
               {(["day", "week", "month"] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => { setView(v); setViewPinned(true); }}
                   className={
                     v === view
-                      ? "bg-accent px-3 py-2 text-white md:py-1 sm:px-3"
-                      : "px-3 py-2 text-txt2 hover:bg-surface md:py-1 sm:px-3"
+                      ? "flex items-center px-3 text-white bg-accent md:py-1 sm:px-3"
+                      : "flex items-center px-3 text-txt2 active:bg-surface2 md:py-1 md:hover:bg-surface sm:px-3"
                   }
                 >
                   {v[0].toUpperCase()}

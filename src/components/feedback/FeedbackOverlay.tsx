@@ -94,10 +94,13 @@ export default function FeedbackOverlay({
   const openItems = mine.filter((i) => i.status === "open");
 
   return (
-    <div className="fixed inset-0 z-[85] flex items-end md:items-center md:justify-center">
+    <div
+      className="fixed inset-0 z-[85] flex items-end md:items-center md:justify-center"
+      style={{ height: "var(--app-height, 100dvh)" }}
+    >
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      <div className="relative flex max-h-[85vh] w-full flex-col rounded-t-2xl border-t border-border bg-surface md:max-w-md md:rounded-2xl md:border">
+      <div className="relative flex max-h-[85%] w-full flex-col rounded-t-2xl border-t border-border bg-surface md:max-h-[85vh] md:max-w-md md:rounded-2xl md:border">
         <div className="flex items-center gap-2 border-b border-border p-3">
           <h2 className="text-sm font-semibold">Feature or bug</h2>
           <button

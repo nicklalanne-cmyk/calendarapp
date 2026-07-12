@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Table2, Kanban, List as ListIcon, CalendarDays, ArrowLeft, Trash2, Plus, Loader2,
-  Search, ArrowUpDown, X,
+  Search, ArrowUpDown, X, Star,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { makeDebouncer } from "@/lib/debounce";
 import { toast } from "@/lib/toast";
+import { recordRecent } from "@/lib/recent";
 import {
   CHOICE_COLORS, uid, retypeProperty,
   type CellLink, type Page, type PageProperty, type PageRecord,
@@ -59,6 +60,7 @@ export default function PageView({ pageId }: { pageId: string }) {
     setProps((pr as PageProperty[]) ?? []);
     setRecords((rc as PageRecord[]) ?? []);
     setLoading(false);
+    if (p) recordRecent({ kind: "page", id: pageId, label: (p as Page).title, href: `/app/pages/${pageId}` });
   }, [supabase, pageId]);
 
   useEffect(() => {
@@ -484,6 +486,17 @@ export default function PageView({ pageId }: { pageId: string }) {
             placeholder="Untitled page"
             className="min-w-0 flex-1 bg-transparent text-2xl font-bold outline-none placeholder:text-txt3 md:text-3xl"
           />
+          <button
+            onClick={() => savePage({ pinned_at: page.pinned_at ? null : new Date().toISOString() }, true)}
+            title={page.pinned_at ? "Unpin" : "Pin to top"}
+            aria-label={page.pinned_at ? "Unpin" : "Pin to top"}
+            className={clsx(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg hover:bg-surface",
+              page.pinned_at ? "text-accent" : "text-txt3"
+            )}
+          >
+            <Star className="h-4 w-4" fill={page.pinned_at ? "currentColor" : "none"} />
+          </button>
           <button
             onClick={deletePage}
             title="Delete page"
