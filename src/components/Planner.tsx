@@ -14,6 +14,13 @@ import { toast } from "@/lib/toast";
 import CalendarGrid, { type TaskDropPayload } from "@/components/calendar/CalendarGrid";
 import MonthView from "@/components/calendar/MonthView";
 import CalendarsPanel from "@/components/calendar/CalendarsPanel";
+import {
+  eventsCacheKey,
+  getCachedEvents,
+  isEventsCacheFresh,
+  setCachedEvents,
+  clearEventsCache,
+} from "@/lib/eventsCache";
 import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskList from "@/components/tasks/TaskList";
 import TaskModal, { type TaskDraft, type LinkedEvent } from "@/components/tasks/TaskModal";
@@ -66,34 +73,60 @@ export default function Planner() {
   // after a newer one (the saved default "month" view) and clobbering its results.
   const reqSeq = useRef(0);
 
-  const loadEvents = useCallback(async () => {
-    const seq = ++reqSeq.current;
-    setLoadingEvents(true);
-    const range =
-      view === "day" ? dayRange(date) : view === "week" ? weekRange(date) : monthRange(date);
-    const params = new URLSearchParams({
-      timeMin: range.start.toISOString(),
-      timeMax: range.end.toISOString(),
-    });
-    try {
-      const res = await fetch(`/api/google/events?${params.toString()}`);
-      const json = (await res.json()) as { events?: CalendarEvent[]; noAccounts?: boolean };
-      if (seq !== reqSeq.current) return; // a newer request has since been issued
-      setNoAccounts(Boolean(json.noAccounts));
-      setEvents(json.events ?? []);
-    } catch {
-      if (seq !== reqSeq.current) return;
-      setEvents([]);
-      toast("Couldn't load calendar", "error");
-    }
-    if (seq === reqSeq.current) setLoadingEvents(false);
-  }, [view, date]);
+  // Stale-while-revalidate: cached ranges render instantly (no spinner, no
+  // network wait) while a fresh copy is fetched silently in the background.
+  // Only a genuinely uncached range shows the loading state and blocks.
+  const loadEvents = useCallback(
+    async (force = false) => {
+      const seq = ++reqSeq.current;
+      const range =
+        view === "day" ? dayRange(date) : view === "week" ? weekRange(date) : monthRange(date);
+      const timeMin = range.start.toISOString();
+      const timeMax = range.end.toISOString();
+      const key = eventsCacheKey(timeMin, timeMax);
+      const cached = force ? undefined : getCachedEvents(key);
+
+      if (cached) {
+        setNoAccounts(cached.noAccounts);
+        setEvents(cached.events);
+        if (isEventsCacheFresh(cached)) return; // fresh enough, skip the network call entirely
+      } else {
+        setLoadingEvents(true);
+      }
+
+      const params = new URLSearchParams({ timeMin, timeMax });
+      try {
+        const res = await fetch(`/api/google/events?${params.toString()}`);
+        const json = (await res.json()) as { events?: CalendarEvent[]; noAccounts?: boolean };
+        if (seq !== reqSeq.current) return; // a newer request has since been issued
+        const noAcc = Boolean(json.noAccounts);
+        const evs = json.events ?? [];
+        setCachedEvents(key, evs, noAcc);
+        setNoAccounts(noAcc);
+        setEvents(evs);
+      } catch {
+        if (seq !== reqSeq.current) return;
+        if (!cached) {
+          setEvents([]);
+          toast("Couldn't load calendar", "error");
+        }
+      }
+      if (seq === reqSeq.current) setLoadingEvents(false);
+    },
+    [view, date]
+  );
 
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
   useEffect(() => {
     loadEvents();
+  }, [loadEvents]);
+  // Background refresh every 10 minutes so data stays fresh without any
+  // user-initiated navigation having to pay for it.
+  useEffect(() => {
+    const id = setInterval(() => loadEvents(true), 10 * 60 * 1000);
+    return () => clearInterval(id);
   }, [loadEvents]);
   useEffect(() => {
     const h = () => loadTasks();
@@ -104,7 +137,10 @@ export default function Planner() {
     const h = (e: Event) => {
       const d = (e as CustomEvent<{ tasks?: boolean; events?: boolean }>).detail;
       if (d?.tasks) loadTasks();
-      if (d?.events) loadEvents();
+      if (d?.events) {
+        clearEventsCache();
+        loadEvents(true);
+      }
     };
     window.addEventListener("cadence:ai-mutated", h as EventListener);
     return () => window.removeEventListener("cadence:ai-mutated", h as EventListener);
@@ -449,7 +485,8 @@ export default function Planner() {
         : await fetch(`/api/google/events`, { method: "POST", headers, body });
     if (!res.ok) toast("Couldn't save the event", "error");
     setDraft(null);
-    loadEvents();
+    clearEventsCache();
+    loadEvents(true);
   };
 
   const deleteEvent = async (d: EventDraft) => {
@@ -462,7 +499,8 @@ export default function Planner() {
       if (!res.ok) toast("Couldn't delete the event", "error");
     }
     setDraft(null);
-    loadEvents();
+    clearEventsCache();
+    loadEvents(true);
   };
 
   const patchEvent = async (ev: CalendarEvent, payload: Record<string, string>) => {
@@ -473,7 +511,8 @@ export default function Planner() {
       body: JSON.stringify(payload),
     });
     if (!res.ok) toast("Couldn't update the event", "error");
-    loadEvents();
+    clearEventsCache();
+    loadEvents(true);
   };
 
   const moveEvent = (ev: CalendarEvent, start: Date, end: Date) =>
@@ -606,48 +645,96 @@ export default function Planner() {
       )}
 
       <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex items-center gap-1.5 border-b border-border px-2 py-1.5 md:gap-2 md:px-3 md:py-2">
-          <button
-            onClick={() => setTasksOpen(true)}
-            aria-label={`Open task list — ${openCount} open`}
-            className="flex h-11 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-txt2 active:bg-surface2 md:hidden"
-          >
-            <ListTodo className="h-[18px] w-[18px]" />
-            {openCount}
-          </button>
-          <h1 className="truncate text-base font-semibold md:text-lg">{periodLabel}</h1>
-          {loadingEvents && <Loader2 className="h-3.5 w-3.5 animate-spin text-txt3" />}
-          <button
-            onClick={() => setDate(new Date())}
-            aria-label="Jump to today"
-            className="flex h-11 items-center rounded-lg border border-border px-2.5 text-xs font-medium text-txt2 active:bg-surface2 md:h-auto md:rounded-md md:px-2 md:py-1 md:hover:bg-surface"
-          >
-            Today
-          </button>
-          <div className="ml-auto flex items-center gap-0.5 md:gap-1">
+        {/* mobile: title gets its own row so it never truncates, controls sit below */}
+        <header className="flex flex-col gap-1.5 border-b border-border px-2 py-1.5 md:hidden">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setTasksOpen(true)}
+              aria-label={`Open task list — ${openCount} open`}
+              className="flex h-11 shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-txt2 active:bg-surface2"
+            >
+              <ListTodo className="h-[18px] w-[18px]" />
+              {openCount}
+            </button>
+            <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{periodLabel}</h1>
+            {loadingEvents && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-txt3" />}
+            <button
+              onClick={() => setDate(new Date())}
+              aria-label="Jump to today"
+              className="flex h-11 shrink-0 items-center rounded-lg border border-border px-2.5 text-xs font-medium text-txt2 active:bg-surface2"
+            >
+              Today
+            </button>
+          </div>
+          <div className="flex items-center gap-0.5">
             <button
               onClick={() => shift(-1)}
               aria-label="Previous"
-              className="flex h-11 w-11 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-auto md:w-auto md:p-1 md:hover:bg-surface"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-txt2 active:bg-surface2"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
             <button
               onClick={() => shift(1)}
               aria-label="Next"
-              className="flex h-11 w-11 items-center justify-center rounded-lg text-txt2 active:bg-surface2 md:h-auto md:w-auto md:p-1 md:hover:bg-surface"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-txt2 active:bg-surface2"
             >
               <ChevronRight className="h-5 w-5" />
             </button>
-            <div className="ml-1 flex h-11 overflow-hidden rounded-lg border border-border text-[13px] md:h-auto md:rounded-md md:text-xs">
+            <div className="ml-auto flex h-11 overflow-hidden rounded-lg border border-border text-[13px]">
               {(["day", "week", "month"] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => { setView(v); setViewPinned(true); }}
                   className={
                     v === view
-                      ? "flex items-center px-3 text-white bg-accent md:py-1 sm:px-3"
-                      : "flex items-center px-3 text-txt2 active:bg-surface2 md:py-1 md:hover:bg-surface sm:px-3"
+                      ? "flex items-center px-4 text-white bg-accent"
+                      : "flex items-center px-4 text-txt2 active:bg-surface2"
+                  }
+                >
+                  {v[0].toUpperCase()}
+                  <span className="hidden sm:inline">{v.slice(1)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        {/* desktop: everything fits comfortably on one row */}
+        <header className="hidden items-center gap-2 border-b border-border px-3 py-2 md:flex">
+          <h1 className="truncate text-lg font-semibold">{periodLabel}</h1>
+          {loadingEvents && <Loader2 className="h-3.5 w-3.5 animate-spin text-txt3" />}
+          <button
+            onClick={() => setDate(new Date())}
+            aria-label="Jump to today"
+            className="flex items-center rounded-md px-2 py-1 text-xs font-medium text-txt2 hover:bg-surface"
+          >
+            Today
+          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => shift(-1)}
+              aria-label="Previous"
+              className="flex items-center justify-center rounded-lg p-1 text-txt2 hover:bg-surface"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => shift(1)}
+              aria-label="Next"
+              className="flex items-center justify-center rounded-lg p-1 text-txt2 hover:bg-surface"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+            <div className="ml-1 flex overflow-hidden rounded-md border border-border text-xs">
+              {(["day", "week", "month"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => { setView(v); setViewPinned(true); }}
+                  className={
+                    v === view
+                      ? "flex items-center px-3 py-1 text-white bg-accent"
+                      : "flex items-center px-3 py-1 text-txt2 hover:bg-surface"
                   }
                 >
                   {v[0].toUpperCase()}

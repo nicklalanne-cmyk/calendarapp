@@ -15,6 +15,7 @@ import { toISODate } from "@/lib/recurrence";
 import { startOfWeek } from "@/lib/tasks";
 import { dueChip } from "@/components/tasks/TaskItem";
 import { toast } from "@/lib/toast";
+import { eventsCacheKey, getCachedEvents, isEventsCacheFresh, setCachedEvents } from "@/lib/eventsCache";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 
@@ -45,40 +46,60 @@ export default function AgendaView() {
 
   const reqSeq = useRef(0);
 
-  const load = useCallback(async () => {
-    if (days.length === 0) return;
-    const seq = ++reqSeq.current;
-    setLoading(true);
-    const start = dayRange(days[0]).start;
-    const end = dayRange(days[days.length - 1]).end;
-    const params = new URLSearchParams({
-      timeMin: start.toISOString(),
-      timeMax: end.toISOString(),
-    });
-    try {
-      const res = await fetch(`/api/google/events?${params.toString()}`);
-      const j = (await res.json()) as { events?: CalendarEvent[] };
-      if (seq !== reqSeq.current) return;
-      setEvents(j.events ?? []);
-    } catch {
-      if (seq !== reqSeq.current) return;
-      setEvents([]);
-    }
-    const { data } = await supabase.from("tasks").select("*").eq("is_done", false).is("deleted_at", null);
-    if (seq !== reqSeq.current) return;
-    setTasks((data as Task[]) ?? []);
+  // Shares the same cache as Planner, keyed by time range — so switching
+  // between Agenda and Planner on the same day doesn't re-fetch from Google.
+  const load = useCallback(
+    async (force = false) => {
+      if (days.length === 0) return;
+      const seq = ++reqSeq.current;
+      const start = dayRange(days[0]).start;
+      const end = dayRange(days[days.length - 1]).end;
+      const timeMin = start.toISOString();
+      const timeMax = end.toISOString();
+      const key = eventsCacheKey(timeMin, timeMax);
+      const cached = force ? undefined : getCachedEvents(key);
 
-    // RLS only returns rows the partner shared with you — none of your own,
-    // since your own real events already arrive via the Google fetch above.
-    const { data: shared } = await supabase
-      .from("shared_events")
-      .select("*")
-      .gte("start_at", start.toISOString())
-      .lte("start_at", end.toISOString());
-    if (seq !== reqSeq.current) return;
-    setSharedEvents((shared as SharedEvent[]) ?? []);
-    setLoading(false);
-  }, [supabase, days]);
+      if (cached) {
+        setEvents(cached.events);
+      } else {
+        setLoading(true);
+      }
+
+      if (!cached || !isEventsCacheFresh(cached)) {
+        const params = new URLSearchParams({ timeMin, timeMax });
+        try {
+          const res = await fetch(`/api/google/events?${params.toString()}`);
+          const j = (await res.json()) as { events?: CalendarEvent[]; noAccounts?: boolean };
+          if (seq !== reqSeq.current) return;
+          const evs = j.events ?? [];
+          setCachedEvents(key, evs, Boolean(j.noAccounts));
+          setEvents(evs);
+        } catch {
+          if (seq !== reqSeq.current) return;
+          if (!cached) setEvents([]);
+        }
+      }
+      const { data } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("is_done", false)
+        .is("deleted_at", null);
+      if (seq !== reqSeq.current) return;
+      setTasks((data as Task[]) ?? []);
+
+      // RLS only returns rows the partner shared with you — none of your own,
+      // since your own real events already arrive via the Google fetch above.
+      const { data: shared } = await supabase
+        .from("shared_events")
+        .select("*")
+        .gte("start_at", start.toISOString())
+        .lte("start_at", end.toISOString());
+      if (seq !== reqSeq.current) return;
+      setSharedEvents((shared as SharedEvent[]) ?? []);
+      setLoading(false);
+    },
+    [supabase, days]
+  );
 
   useEffect(() => {
     setHidden(getHiddenCals());
@@ -91,8 +112,15 @@ export default function AgendaView() {
     load();
   }, [load]);
 
+  // Background refresh every 10 minutes so data stays fresh without any
+  // user-initiated navigation having to pay for it.
   useEffect(() => {
-    const h = () => load();
+    const id = setInterval(() => load(true), 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  useEffect(() => {
+    const h = () => load(true);
     window.addEventListener("cadence:ai-mutated", h);
     window.addEventListener("cadence:tasks-changed", h);
     return () => {
@@ -261,50 +289,50 @@ export default function AgendaView() {
           </div>
         </header>
 
-        {/* mobile: title + week arrows, then an evenly-gridded 7-day strip */}
+        {/* mobile: title on its own row, controls on a second row, then an evenly-gridded 7-day strip */}
         <header className="shrink-0 border-b border-border px-4 pb-2 md:hidden">
           <div className="flex items-center gap-2 py-1">
-            <h1 className="min-w-0 truncate text-lg font-semibold">
-              {mode === "week" ? title : format(anchor, "EEE, MMM d")}
+            <h1 className="min-w-0 flex-1 text-lg font-semibold">
+              {mode === "week" ? title : format(anchor, "EEEE, MMM d")}
             </h1>
             {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-txt3" />}
+            <button
+              onClick={() => setTasksOpen(true)}
+              aria-label="Tasks"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
+            >
+              <ListTodo className="h-3.5 w-3.5" />
+              {overdue.length + inRange.length}
+            </button>
+          </div>
 
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              <button
-                onClick={() => setMode((m) => (m === "day" ? "week" : "day"))}
-                className="rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
-              >
-                {mode === "day" ? "Week" : "Day"}
-              </button>
-              <button
-                onClick={() => shiftWeek(-1)}
-                aria-label="Previous week"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-txt2 active:bg-surface2"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <button
-                onClick={() => shiftWeek(1)}
-                aria-label="Next week"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-txt2 active:bg-surface2"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </button>
-              <button
-                onClick={() => setAnchor(new Date())}
-                className="rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
-              >
-                Today
-              </button>
-              <button
-                onClick={() => setTasksOpen(true)}
-                aria-label="Tasks"
-                className="flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
-              >
-                <ListTodo className="h-3.5 w-3.5" />
-                {overdue.length + inRange.length}
-              </button>
-            </div>
+          <div className="flex items-center gap-1 pb-1">
+            <button
+              onClick={() => setMode((m) => (m === "day" ? "week" : "day"))}
+              className="rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
+            >
+              {mode === "day" ? "Week" : "Day"}
+            </button>
+            <button
+              onClick={() => shiftWeek(-1)}
+              aria-label="Previous week"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-txt2 active:bg-surface2"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => shiftWeek(1)}
+              aria-label="Next week"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-txt2 active:bg-surface2"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setAnchor(new Date())}
+              className="ml-auto rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
+            >
+              Today
+            </button>
           </div>
 
           {/* a 7-column grid can't drift: every day gets exactly 1/7 of the width */}

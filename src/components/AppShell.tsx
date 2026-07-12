@@ -13,7 +13,7 @@ import {
   Moon,
   Settings,
   Sparkles,
-  MoreHorizontal,
+  Menu,
   Table2,
   Timer,
   MessageSquarePlus,
@@ -331,7 +331,7 @@ export default function AppShell({
               aria-label="More"
               className="flex h-11 w-11 items-center justify-center rounded-xl text-txt2 active:bg-surface2"
             >
-              <MoreHorizontal className="h-[22px] w-[22px]" />
+              <Menu className="h-[22px] w-[22px]" />
             </button>
           </div>
         </header>

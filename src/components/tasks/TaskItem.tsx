@@ -85,7 +85,7 @@ export default function TaskItem({
           );
           e.dataTransfer.effectAllowed = "copy";
         }}
-        className="group relative flex items-center gap-2 rounded-lg border border-transparent py-2.5 pl-1 pr-1 hover:border-border hover:bg-surface md:py-1.5"
+        className="group relative flex items-start gap-2 rounded-lg border border-transparent py-2.5 pl-1 pr-1 hover:border-border hover:bg-surface md:items-center md:py-1.5"
       >
         <GripVertical className="hidden h-3.5 w-3.5 shrink-0 cursor-grab text-txt3 opacity-30 transition-opacity group-hover:opacity-100 md:block" />
 
@@ -93,7 +93,7 @@ export default function TaskItem({
           onClick={() => onToggle(task)}
           aria-label={task.is_done ? "Mark incomplete" : "Mark complete"}
           className={clsx(
-            "ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition md:ml-0 md:h-[18px] md:w-[18px] md:border",
+            "ml-1 mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition md:ml-0 md:mt-0 md:h-[18px] md:w-[18px] md:border",
             task.is_done ? "border-accent bg-accent text-white" : "border-txt3 hover:border-accent"
           )}
         >
@@ -168,47 +168,89 @@ export default function TaskItem({
               )}
             </div>
           )}
+
+          {/* actions — mobile only, own row so it never collides with the meta chips above */}
+          <div className="mt-1 flex items-center gap-1 md:hidden">
+            <button
+              onClick={() => onSchedule(task)}
+              title="Add to calendar"
+              className="rounded-lg p-1.5 text-txt3 active:bg-surface2"
+            >
+              <CalendarPlus className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onOpenNote(task)}
+              title="Open linked note"
+              className="rounded-lg p-1.5 text-txt3 active:bg-surface2"
+            >
+              <FileText className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setAdding((v) => !v)}
+              title="Add subtask"
+              className="rounded-lg p-1.5 text-txt3 active:bg-surface2"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onCyclePriority(task)}
+              title="Cycle priority"
+              className="rounded-lg p-1.5 active:bg-surface2"
+            >
+              <Flag
+                className="h-4 w-4"
+                style={{ color: pColor ?? "#6E6E7A", fill: pColor ?? "transparent" }}
+              />
+            </button>
+            <button
+              onClick={() => onDelete(task)}
+              title="Delete"
+              className="ml-auto rounded-lg p-1.5 text-txt3 active:bg-surface2"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        {/* actions — fixed cluster, floats over the meta row on hover so nothing collides */}
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 rounded-md pl-1 transition md:bg-surface md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+        {/* actions — desktop only here; fixed cluster, floats over the meta row on hover so nothing collides */}
+        <div className="ml-auto hidden shrink-0 items-center gap-0.5 rounded-md pl-1 transition md:flex md:bg-surface md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
           <button
             onClick={() => onSchedule(task)}
             title="Add to calendar"
-            className="rounded-lg p-2 text-txt3 active:bg-surface2 md:p-1 md:hover:bg-surface2 md:hover:text-txt"
+            className="rounded-lg p-1 text-txt3 hover:bg-surface2 hover:text-txt"
           >
-            <CalendarPlus className="h-[18px] w-[18px] md:h-3.5 md:w-3.5" />
+            <CalendarPlus className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onOpenNote(task)}
             title="Open linked note"
-            className="rounded-lg p-2 text-txt3 active:bg-surface2 md:p-1 md:hover:bg-surface2 md:hover:text-txt"
+            className="rounded-lg p-1 text-txt3 hover:bg-surface2 hover:text-txt"
           >
-            <FileText className="h-[18px] w-[18px] md:h-3.5 md:w-3.5" />
+            <FileText className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => setAdding((v) => !v)}
             title="Add subtask"
-            className="rounded-lg p-2 text-txt3 active:bg-surface2 md:p-1 md:hover:bg-surface2 md:hover:text-txt"
+            className="rounded-lg p-1 text-txt3 hover:bg-surface2 hover:text-txt"
           >
-            <Plus className="h-[18px] w-[18px] md:h-3.5 md:w-3.5" />
+            <Plus className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onCyclePriority(task)}
             title="Cycle priority"
-            className="rounded-lg p-2 active:bg-surface2 md:p-1 md:hover:bg-surface2"
+            className="rounded-lg p-1 hover:bg-surface2"
           >
             <Flag
-              className="h-[18px] w-[18px] md:h-3.5 md:w-3.5"
+              className="h-3.5 w-3.5"
               style={{ color: pColor ?? "#6E6E7A", fill: pColor ?? "transparent" }}
             />
           </button>
           <button
             onClick={() => onDelete(task)}
             title="Delete"
-            className="rounded-lg p-2 text-txt3 active:bg-surface2 md:p-1 md:hover:bg-surface2 md:hover:text-danger"
+            className="rounded-lg p-1 text-txt3 hover:bg-surface2 hover:text-danger"
           >
-            <Trash2 className="h-[18px] w-[18px] md:h-3.5 md:w-3.5" />
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
 
