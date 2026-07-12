@@ -5,7 +5,8 @@ export type AutomationKind =
   | "recurring_task"
   | "task_completed_followup"
   | "event_prep_task"
-  | "due_soon_nudge";
+  | "due_soon_nudge"
+  | "conditional_update";
 
 export type RecurringTaskConfig = {
   title: string;
@@ -36,15 +37,41 @@ export type DueSoonNudgeConfig = {
   daysBefore: number;
 };
 
+/** "Whenever a task with this tag or project is created/updated, apply these
+ * changes to it" — a small general-purpose condition → action rule. This is
+ * the one automation kind that runs on every task save (create and edit),
+ * not on a specific event, so it's the closest thing to "automations that
+ * can do basically anything" within the tag/project/priority/tag space. */
+export type ConditionalUpdateConfig = {
+  matchField: "tag" | "project";
+  matchValue: string;
+  setPriority?: number | null;
+  setProject?: string | null;
+  addTag?: string | null;
+};
+
 export type Automation = {
   id: string;
   user_id: string;
   name: string;
   kind: AutomationKind;
-  config: RecurringTaskConfig | TaskCompletedFollowupConfig | EventPrepTaskConfig | DueSoonNudgeConfig;
+  config:
+    | RecurringTaskConfig
+    | TaskCompletedFollowupConfig
+    | EventPrepTaskConfig
+    | DueSoonNudgeConfig
+    | ConditionalUpdateConfig;
   enabled: boolean;
   last_run_on: string | null;
   created_at: string;
+};
+
+/** Minimal shape a conditional_update rule needs to read/write — deliberately
+ * loose (not TaskDraft) so this module doesn't import from TaskModal. */
+export type ConditionalDraft = {
+  priority?: number;
+  project?: string | null;
+  tags?: string[] | null;
 };
 
 /** Fetches enabled automations of a given kind for the current user. */
@@ -95,6 +122,41 @@ export async function runEventCreatedAutomations(supabase: SupabaseClient, event
       shared: false,
     });
   }
+}
+
+/** Applies any matching conditional_update rules to a task draft BEFORE it's
+ * saved, so "if a task has tag X / is in project Y, set its priority to Z"
+ * takes effect on both create and edit — call this right before the
+ * supabase insert/update in every task-save path. Mutating the draft here
+ * (rather than patching after the fact) means the change lands in the same
+ * write, with no extra round trip and no risk of the UI briefly showing the
+ * pre-automation value. */
+export async function applyConditionalAutomations<T extends ConditionalDraft>(
+  supabase: SupabaseClient,
+  draft: T
+): Promise<T> {
+  const rules = await enabledAutomations(supabase, "conditional_update");
+  if (rules.length === 0) return draft;
+  let next: T = { ...draft };
+  for (const r of rules) {
+    const cfg = r.config as ConditionalUpdateConfig;
+    if (!cfg.matchValue) continue;
+    const needle = cfg.matchValue.toLowerCase();
+    const matches =
+      cfg.matchField === "tag"
+        ? (next.tags ?? []).some((t) => t.toLowerCase() === needle)
+        : (next.project ?? "").toLowerCase() === needle;
+    if (!matches) continue;
+    if (cfg.setPriority != null) next = { ...next, priority: cfg.setPriority };
+    if (cfg.setProject) next = { ...next, project: cfg.setProject };
+    if (cfg.addTag) {
+      const existing = next.tags ?? [];
+      if (!existing.some((t) => t.toLowerCase() === cfg.addTag!.toLowerCase())) {
+        next = { ...next, tags: [...existing, cfg.addTag] };
+      }
+    }
+  }
+  return next;
 }
 
 export const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

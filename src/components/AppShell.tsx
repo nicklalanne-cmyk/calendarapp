@@ -50,6 +50,24 @@ export default function AppShell({
   const { isAdmin, openCount } = useAdminInbox();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [railExpanded, setRailExpanded] = useState(false);
+  // Rendered blank on the server/first client pass and filled in after mount
+  // so the browser's local timezone (used to format the build time) can't
+  // cause a hydration mismatch against the server's.
+  const [buildLabel, setBuildLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    const sha = (process.env.NEXT_PUBLIC_BUILD_SHA || "dev").slice(0, 7);
+    const iso = process.env.NEXT_PUBLIC_BUILD_TIME;
+    const when = iso
+      ? new Date(iso).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : null;
+    setBuildLabel(`v${sha}${when ? ` · updated ${when}` : ""}`);
+  }, []);
 
   useEffect(() => {
     const t = (document.documentElement.getAttribute("data-theme") as "dark" | "light") || "dark";
@@ -290,6 +308,11 @@ export default function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         {/* ---------------- desktop utility bar: search + assistant, always top-right ---------------- */}
         <div className="hidden h-12 shrink-0 items-center justify-end gap-1 border-b border-border px-3 lg:flex">
+          {buildLabel && (
+            <span className="mr-auto select-none text-[10px] text-txt3/50" title="Build version and when this deploy went out">
+              {buildLabel}
+            </span>
+          )}
           <button
             onClick={() => setCmdOpen(true)}
             title="Search & quick add (⌘K)"
@@ -315,6 +338,11 @@ export default function AppShell({
             <CalendarDays className="h-[18px] w-[18px]" />
           </div>
           <span className="text-base font-semibold">Cadence</span>
+          {buildLabel && (
+            <span className="select-none truncate text-[9px] text-txt3/50" title="Build version and when this deploy went out">
+              {buildLabel}
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-1">
             <button
               onClick={() => setCmdOpen(true)}

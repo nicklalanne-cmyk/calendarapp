@@ -25,7 +25,7 @@ import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskList from "@/components/tasks/TaskList";
 import TaskModal, { type TaskDraft, type LinkedEvent } from "@/components/tasks/TaskModal";
 import ScheduleSheet from "@/components/tasks/ScheduleSheet";
-import { runTaskCompletedAutomations, runEventCreatedAutomations } from "@/lib/automations";
+import { runTaskCompletedAutomations, runEventCreatedAutomations, applyConditionalAutomations } from "@/lib/automations";
 
 type View = "day" | "week" | "month";
 
@@ -239,7 +239,8 @@ export default function Planner() {
     loadTasks();
   };
 
-  const createTask = async (d: TaskDraft) => {
+  const createTask = async (draftIn: TaskDraft) => {
+    const d = await applyConditionalAutomations(supabase, draftIn);
     const { error } = await supabase.from("tasks").insert({
       title: d.title,
       due_date: d.due_date,
@@ -356,7 +357,7 @@ export default function Planner() {
 
   const updateTask = async (t: Task, draft: TaskDraft) => {
     const { scope, linked_event, ...rest } = draft;
-    const patch = { ...rest, ...eventCols(linked_event) };
+    const patch = await applyConditionalAutomations(supabase, { ...rest, ...eventCols(linked_event) });
 
     if (scope === "occurrence" && (t.rrule || t.repeat)) {
       // Keep the series alive: spin the NEXT occurrence off as its own repeating task,

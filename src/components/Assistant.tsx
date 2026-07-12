@@ -67,7 +67,7 @@ export default function Assistant({ open, onClose }: { open: boolean; onClose: (
       setRaw(j.messages ?? history);
 
       // tell the rest of the app to refetch
-      if (j.mutated?.tasks || j.mutated?.events) {
+      if (j.mutated?.tasks || j.mutated?.events || j.mutated?.automations) {
         window.dispatchEvent(
           new CustomEvent("cadence:ai-mutated", { detail: j.mutated })
         );

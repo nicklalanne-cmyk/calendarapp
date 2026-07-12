@@ -164,6 +164,71 @@ const TOOLS = [
       required: ["id", "accountId", "calendarId"],
     },
   },
+  {
+    name: "list_automations",
+    description:
+      "List the user's automations (rules that run tasks/events automatically). Use this before update_automation or delete_automation so you have a real id.",
+    input_schema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["recurring_task", "task_completed_followup", "event_prep_task", "due_soon_nudge", "conditional_update"],
+          description: "Optional filter to only one kind.",
+        },
+      },
+    },
+  },
+  {
+    name: "create_automation",
+    description:
+      `Create an automation rule. Five kinds are supported, each with its own config shape:
+- recurring_task: config {title: string, daysOfWeek: number[] (0=Sun..6=Sat), project?: string, priority?: number} — creates a task automatically on the chosen weekdays.
+- task_completed_followup: config {filter?: string (only fires if the completed task's title contains this), title: string (supports {task} placeholder), dueOffsetDays: number, project?: string, priority?: number} — creates a follow-up task when any task is completed.
+- event_prep_task: config {title: string (supports {event} placeholder), hoursBefore: number, project?: string, priority?: number} — creates a prep task before a newly created calendar event.
+- due_soon_nudge: config {daysBefore: number} — sends a push notification before a task's due date. Requires the user to have push notifications enabled.
+- conditional_update: config {matchField: "tag"|"project", matchValue: string, setPriority?: number|null, setProject?: string|null, addTag?: string|null} — whenever a task is created or edited and it has the given tag or is in the given project, automatically applies the given priority/project/tag changes. This is the general "if a task has X, set Y" rule — use it for requests like "if a task is tagged urgent, set its priority to 1" or "if a task is in the Work project, tag it work-review".`,
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short human-readable label for this rule." },
+        kind: {
+          type: "string",
+          enum: ["recurring_task", "task_completed_followup", "event_prep_task", "due_soon_nudge", "conditional_update"],
+        },
+        config: {
+          type: "object",
+          description: "Shape depends on kind — see the tool description above.",
+        },
+        enabled: { type: "boolean", description: "Default true." },
+      },
+      required: ["name", "kind", "config"],
+    },
+  },
+  {
+    name: "update_automation",
+    description:
+      "Update an existing automation. Only pass the fields you want to change. Get the id from list_automations first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        config: { type: "object", description: "Full replacement config object for this automation's kind." },
+        enabled: { type: "boolean" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "delete_automation",
+    description: "Delete an automation permanently. Get the id from list_automations first.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+  },
 ];
 
 export async function POST(request: NextRequest) {
@@ -211,6 +276,7 @@ Rules:
 - Deleting is permanent. If more than one item could match, ask which one instead of guessing.
 - When creating events, always include a timezone offset in the ISO datetimes.
 - Default an event to 1 hour if the user doesn't give a duration.
+- You can also create and manage automations — rules that run automatically (recurring tasks, follow-ups after completing a task, prep tasks before events, due-soon nudges, and "if a task has this tag/project, set this priority/project/tag" conditional updates). If the user describes a recurring behavior they want ("whenever I tag something urgent, make it P1", "remind me to prep before every meeting"), prefer creating an automation over doing a one-off action, unless they clearly just want it done once.
 - Be brief. Confirm what changed in one or two sentences — no bulleted recaps.`;
 
   // ---- tool implementations -------------------------------------------------
@@ -223,7 +289,7 @@ Rules:
   const TASK_COLS =
     "id,title,notes,is_done,due_date,due_kind,priority,rrule,repeat,project,tags,estimate_minutes,parent_id,scheduled_start,scheduled_end,linked_event_id,linked_event_title";
 
-  const mutated = { tasks: false, events: false };
+  const mutated = { tasks: false, events: false, automations: false };
 
   async function runTool(name: string, input: Record<string, any>): Promise<unknown> {
     switch (name) {
@@ -369,6 +435,44 @@ Rules:
         if (!token) throw new Error("Could not refresh the Google token.");
         await deleteEventRaw(token, input.calendarId, input.id);
         mutated.events = true;
+        return { deleted: input.id };
+      }
+      case "list_automations": {
+        let q = supabase.from("automations").select("*").order("created_at", { ascending: false });
+        if (input.kind) q = q.eq("kind", input.kind);
+        const { data, error } = await q;
+        if (error) throw new Error(error.message);
+        return data;
+      }
+      case "create_automation": {
+        const row = {
+          name: input.name,
+          kind: input.kind,
+          config: input.config ?? {},
+          enabled: input.enabled ?? true,
+        };
+        const { data, error } = await supabase.from("automations").insert(row).select("*").single();
+        if (error) throw new Error(error.message);
+        mutated.automations = true;
+        return data;
+      }
+      case "update_automation": {
+        const { id, ...rest } = input;
+        const patch: Record<string, unknown> = {};
+        for (const k of ["name", "config", "enabled"]) {
+          if (k in rest) patch[k] = rest[k];
+        }
+        if (Object.keys(patch).length === 0) throw new Error("nothing to update");
+        const { data, error } = await supabase
+          .from("automations").update(patch).eq("id", id).select("*").single();
+        if (error) throw new Error(error.message);
+        mutated.automations = true;
+        return data;
+      }
+      case "delete_automation": {
+        const { error } = await supabase.from("automations").delete().eq("id", input.id);
+        if (error) throw new Error(error.message);
+        mutated.automations = true;
         return { deleted: input.id };
       }
       default:

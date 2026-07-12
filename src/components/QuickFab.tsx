@@ -74,7 +74,7 @@ export default function QuickFab({
       }
       setStatus("done");
       setReply(j.reply ?? "Done.");
-      if (j.mutated?.tasks || j.mutated?.events) {
+      if (j.mutated?.tasks || j.mutated?.events || j.mutated?.automations) {
         window.dispatchEvent(new CustomEvent("cadence:ai-mutated", { detail: j.mutated }));
       }
       setTimeout(() => setVoice(false), 2200);

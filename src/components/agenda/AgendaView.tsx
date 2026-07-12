@@ -20,7 +20,7 @@ import {
 } from "@/lib/eventsCache";
 import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskModal, { type TaskDraft } from "@/components/tasks/TaskModal";
-import { runTaskCompletedAutomations, runEventCreatedAutomations } from "@/lib/automations";
+import { runTaskCompletedAutomations, runEventCreatedAutomations, applyConditionalAutomations } from "@/lib/automations";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 
@@ -40,6 +40,7 @@ export default function AgendaView() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [mode, setMode] = useState<"day" | "week">("day");
   const touchX = useRef<number | null>(null);
 
@@ -146,7 +147,8 @@ export default function AgendaView() {
     [tasks]
   );
 
-  const createTask = async (d: TaskDraft) => {
+  const createTask = async (draftIn: TaskDraft) => {
+    const d = await applyConditionalAutomations(supabase, draftIn);
     const { error } = await supabase.from("tasks").insert({
       title: d.title,
       due_date: d.due_date,
@@ -166,6 +168,44 @@ export default function AgendaView() {
     });
     if (error) return toast(error.message, "error");
     setCreating(false);
+    load(true);
+  };
+
+  const updateTask = async (t: Task, d: TaskDraft) => {
+    const patch = await applyConditionalAutomations(supabase, {
+      title: d.title,
+      due_date: d.due_date,
+      due_kind: d.due_kind,
+      priority: d.priority,
+      rrule: d.rrule,
+      project: d.project,
+      tags: d.tags,
+      estimate_minutes: d.estimate_minutes,
+      notes: d.notes,
+      shared: d.shared,
+      linked_event_id: d.linked_event?.id ?? null,
+      linked_event_calendar_id: d.linked_event?.calendarId ?? null,
+      linked_event_account_id: d.linked_event?.accountId || null,
+      linked_event_title: d.linked_event?.title ?? null,
+      linked_event_start: d.linked_event?.start || null,
+    });
+    const { error } = await supabase.from("tasks").update(patch).eq("id", t.id);
+    if (error) return toast(error.message, "error");
+    setEditingTask(null);
+    load(true);
+  };
+
+  const deleteTask = async (t: Task) => {
+    setTasks((cur) => cur.filter((x) => x.id !== t.id));
+    const { error } = await supabase
+      .from("tasks")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", t.id);
+    if (error) {
+      load(true);
+      return toast(error.message, "error");
+    }
+    toast(`Deleted "${t.title}"`);
     load(true);
   };
 
@@ -327,13 +367,17 @@ export default function AgendaView() {
             ? (e) => e.dataTransfer.setData("application/json", JSON.stringify({ kind: "task", id: t.id }))
             : undefined
         }
+        onClick={() => setEditingTask(t)}
         className={clsx(
-          "group flex items-center gap-2.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
+          "group flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
           draggable && "cursor-grab active:cursor-grabbing"
         )}
       >
         <button
-          onClick={() => completeTask(t)}
+          onClick={(e) => {
+            e.stopPropagation();
+            completeTask(t);
+          }}
           aria-label={`Mark "${t.title}" done`}
           className="-m-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-txt3 p-1.5 transition active:bg-accent active:text-white md:m-0 md:h-[18px] md:w-[18px] md:border md:p-0 md:hover:border-accent md:hover:bg-accent md:hover:text-white"
         >
@@ -345,7 +389,14 @@ export default function AgendaView() {
             style={{ color: PRIORITY_COLOR[t.priority], fill: PRIORITY_COLOR[t.priority] }}
           />
         )}
-        <span className="min-w-0 flex-1 truncate text-[15px] text-txt md:text-sm">{t.title}</span>
+        <span
+          className={clsx(
+            "min-w-0 flex-1 text-[15px] text-txt md:text-sm",
+            mode === "week" ? "break-words" : "truncate"
+          )}
+        >
+          {t.title}
+        </span>
         {showDue && chip && (
           <span
             className={clsx(
@@ -356,6 +407,142 @@ export default function AgendaView() {
             {chip.label}
           </span>
         )}
+      </div>
+    );
+  };
+
+  // `horizontal` is true only for the desktop week-view column layout — there,
+  // titles wrap instead of truncating since each column has room to grow
+  // vertically. The mobile week list and day view stay truncated/vertical.
+  const renderDayCell = (day: Date, horizontal: boolean) => {
+    const dayStr = format(day, "yyyy-MM-dd");
+    const isToday = dayStr === todayStr;
+    const dayEvents = visibleEvents
+      .filter((e) => isSameDay(parseISO(e.start), day))
+      .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start));
+    const dayTasks = openTasks
+      .filter((t) => t.due_date === dayStr)
+      .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+    const daySharedEvents =
+      mode === "day"
+        ? sharedEvents
+            .filter((e) => isSameDay(parseISO(e.start_at), day))
+            .sort((a, b) => a.start_at.localeCompare(b.start_at))
+        : [];
+
+    const emptyDay = dayEvents.length === 0 && dayTasks.length === 0 && daySharedEvents.length === 0;
+    const titleCls = horizontal ? "break-words" : "truncate";
+
+    return (
+      <div
+        key={dayStr}
+        className={horizontal ? "flex min-w-0 flex-col" : "mb-5"}
+        onDragOver={mode === "week" ? (e) => e.preventDefault() : undefined}
+        onDrop={mode === "week" ? (e) => onDropOnDay(e, day) : undefined}
+      >
+        <div className="mb-2 flex items-baseline gap-2 border-b border-border pb-1">
+          <span className={clsx("text-sm font-semibold", isToday ? "text-accent" : "text-txt")}>
+            {isToday ? "Today" : format(day, "EEEE")}
+          </span>
+          <span className="text-xs text-txt3">{format(day, "MMM d")}</span>
+          {emptyDay && mode === "day" && <span className="ml-auto text-xs text-txt3">Nothing scheduled</span>}
+          {mode === "week" && (
+            <button
+              onClick={() => jumpToDay(day)}
+              title="Open this day to edit, add, or delete"
+              className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-txt3 hover:bg-surface2 hover:text-accent"
+            >
+              Open day <ArrowUpRight className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+
+        {emptyDay && horizontal && <div className="py-2 text-xs text-txt3">Nothing scheduled</div>}
+
+        {dayTasks.map((t) => (
+          <TaskRow
+            key={t.id}
+            t={t}
+            showDue={(t.due_kind ?? "day") === "week"}
+            draggable={mode === "week"}
+          />
+        ))}
+
+        {dayEvents.map((e) => (
+          <div
+            key={`${e.calendarId}:${e.id}`}
+            onClick={() => openEvent(e)}
+            draggable={mode === "week"}
+            onDragStart={
+              mode === "week"
+                ? (ev) =>
+                    ev.dataTransfer.setData(
+                      "application/json",
+                      JSON.stringify({ kind: "event", id: e.id, calendarId: e.calendarId })
+                    )
+                : undefined
+            }
+            className={clsx(
+              "flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
+              mode === "week" && "cursor-grab active:cursor-grabbing"
+            )}
+          >
+            <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
+              {e.allDay ? "All day" : fmtTime(parseISO(e.start))}
+            </span>
+            <span
+              className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+              style={{ background: e.color ?? "#56A8F0" }}
+            />
+            <div className="min-w-0 flex-1">
+              <div className={clsx("text-[15px] text-txt md:text-sm", titleCls)}>{e.title}</div>
+              <div className="flex items-center gap-3 text-[11px] text-txt3">
+                {e.location && (
+                  <span className="flex min-w-0 items-center gap-1">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className={titleCls}>{e.location}</span>
+                  </span>
+                )}
+                {e.meetingLink && (
+                  <a
+                    href={e.meetingLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(ev) => ev.stopPropagation()}
+                    className="flex shrink-0 items-center gap-1 text-accentSoft hover:underline"
+                  >
+                    <Video className="h-3 w-3" /> Join
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {daySharedEvents.map((e) => (
+          <div
+            key={`shared:${e.id}`}
+            className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5"
+            title="Shared with you by your partner"
+          >
+            <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
+              {e.all_day ? "All day" : fmtTime(parseISO(e.start_at))}
+            </span>
+            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accentSoft" />
+            <div className="min-w-0 flex-1">
+              <div className={clsx("flex items-center gap-1.5 text-[15px] text-txt md:text-sm", titleCls)}>
+                <span className={titleCls}>{e.title}</span>
+                <Users className="h-3 w-3 shrink-0 text-accentSoft" />
+              </div>
+              {e.location && (
+                <div className="flex items-center gap-1 text-[11px] text-txt3">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className={titleCls}>{e.location}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     );
   };
@@ -561,147 +748,22 @@ export default function AgendaView() {
             touchX.current = null;
           }}
         >
-          <div className="mx-auto max-w-3xl p-4 md:p-6">
-            {days.map((day) => {
-              const dayStr = format(day, "yyyy-MM-dd");
-              const isToday = dayStr === todayStr;
-              const dayEvents = visibleEvents
-                .filter((e) => isSameDay(parseISO(e.start), day))
-                .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start));
-              const dayTasks = openTasks
-                .filter(
-                  (t) =>
-                    (t.due_kind ?? "day") === "day"
-                      ? t.due_date === dayStr
-                      : t.due_date === dayStr // week tasks show on their week's first day
-                )
-                .sort((a, b) => (a.priority || 99) - (b.priority || 99));
-              const daySharedEvents =
-                mode === "day"
-                  ? sharedEvents
-                      .filter((e) => isSameDay(parseISO(e.start_at), day))
-                      .sort((a, b) => a.start_at.localeCompare(b.start_at))
-                  : [];
-
-              const emptyDay = dayEvents.length === 0 && dayTasks.length === 0 && daySharedEvents.length === 0;
-
-              return (
-                <div
-                  key={dayStr}
-                  className="mb-5"
-                  onDragOver={mode === "week" ? (e) => e.preventDefault() : undefined}
-                  onDrop={mode === "week" ? (e) => onDropOnDay(e, day) : undefined}
-                >
-                  <div className="mb-2 flex items-baseline gap-2 border-b border-border pb-1">
-                    <span
-                      className={clsx(
-                        "text-sm font-semibold",
-                        isToday ? "text-accent" : "text-txt"
-                      )}
-                    >
-                      {isToday ? "Today" : format(day, "EEEE")}
-                    </span>
-                    <span className="text-xs text-txt3">{format(day, "MMM d")}</span>
-                    {emptyDay && mode === "day" && <span className="ml-auto text-xs text-txt3">Nothing scheduled</span>}
-                    {mode === "week" && (
-                      <button
-                        onClick={() => jumpToDay(day)}
-                        title="Open this day to edit, add, or delete"
-                        className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-txt3 hover:bg-surface2 hover:text-accent"
-                      >
-                        Open day <ArrowUpRight className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-
-                  {dayTasks.map((t) => (
-                    <TaskRow
-                      key={t.id}
-                      t={t}
-                      showDue={(t.due_kind ?? "day") === "week"}
-                      draggable={mode === "week"}
-                    />
-                  ))}
-
-                  {dayEvents.map((e) => (
-                    <div
-                      key={`${e.calendarId}:${e.id}`}
-                      onClick={() => openEvent(e)}
-                      draggable={mode === "week"}
-                      onDragStart={
-                        mode === "week"
-                          ? (ev) =>
-                              ev.dataTransfer.setData(
-                                "application/json",
-                                JSON.stringify({ kind: "event", id: e.id, calendarId: e.calendarId })
-                              )
-                          : undefined
-                      }
-                      className={clsx(
-                        "flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
-                        mode === "week" && "cursor-grab active:cursor-grabbing"
-                      )}
-                    >
-                      <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
-                        {e.allDay ? "All day" : fmtTime(parseISO(e.start))}
-                      </span>
-                      <span
-                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                        style={{ background: e.color ?? "#56A8F0" }}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[15px] text-txt md:text-sm">{e.title}</div>
-                        <div className="flex items-center gap-3 text-[11px] text-txt3">
-                          {e.location && (
-                            <span className="flex min-w-0 items-center gap-1">
-                              <MapPin className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{e.location}</span>
-                            </span>
-                          )}
-                          {e.meetingLink && (
-                            <a
-                              href={e.meetingLink}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(ev) => ev.stopPropagation()}
-                              className="flex shrink-0 items-center gap-1 text-accentSoft hover:underline"
-                            >
-                              <Video className="h-3 w-3" /> Join
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {daySharedEvents.map((e) => (
-                    <div
-                      key={`shared:${e.id}`}
-                      className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5"
-                      title="Shared with you by your partner"
-                    >
-                      <span className="mt-0.5 w-[70px] shrink-0 whitespace-nowrap text-xs tabular-nums text-txt3">
-                        {e.all_day ? "All day" : fmtTime(parseISO(e.start_at))}
-                      </span>
-                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accentSoft" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 truncate text-[15px] text-txt md:text-sm">
-                          <span className="truncate">{e.title}</span>
-                          <Users className="h-3 w-3 shrink-0 text-accentSoft" />
-                        </div>
-                        {e.location && (
-                          <div className="flex items-center gap-1 text-[11px] text-txt3">
-                            <MapPin className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{e.location}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
+          {mode === "week" ? (
+            <>
+              {/* mobile: stays a vertical, one-day-at-a-time list */}
+              <div className="mx-auto max-w-3xl p-4 md:hidden">
+                {days.map((day) => renderDayCell(day, false))}
+              </div>
+              {/* desktop: 7 columns side by side, so the whole week is visible at once */}
+              <div className="hidden h-full grid-cols-7 gap-3 p-4 md:grid md:p-6">
+                {days.map((day) => renderDayCell(day, true))}
+              </div>
+            </>
+          ) : (
+            <div className="mx-auto max-w-3xl p-4 md:p-6">
+              {days.map((day) => renderDayCell(day, false))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -750,6 +812,21 @@ export default function AgendaView() {
           onDelete={draft.id ? () => deleteEvent(draft) : undefined}
           onConvertToTask={convertEventToTask}
           onClose={() => setDraft(null)}
+        />
+      )}
+
+      {editingTask && (
+        <TaskModal
+          task={editingTask}
+          mode="edit"
+          projects={projectNames}
+          currentUserId={currentUserId}
+          onSave={(patch) => updateTask(editingTask, patch)}
+          onDelete={() => {
+            deleteTask(editingTask);
+            setEditingTask(null);
+          }}
+          onClose={() => setEditingTask(null)}
         />
       )}
     </div>

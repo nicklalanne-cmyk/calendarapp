@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Zap, Plus, Trash2, X, Repeat, CheckCircle2, CalendarPlus, BellRing } from "lucide-react";
+import { Zap, Plus, Trash2, X, Repeat, CheckCircle2, CalendarPlus, BellRing, Tag } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -28,6 +28,11 @@ const KIND_META: Record<AutomationKind, { label: string; icon: React.ElementType
     icon: BellRing,
     blurb: "Get a push notification a few days before a task's due date.",
   },
+  conditional_update: {
+    label: "Tag/project → auto-update",
+    icon: Tag,
+    blurb: "Whenever a task has a specific tag or project, automatically set its priority, project, or add a tag.",
+  },
 };
 
 export default function AutomationsView() {
@@ -48,6 +53,12 @@ export default function AutomationsView() {
 
   useEffect(() => {
     load();
+    const h = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.automations) load();
+    };
+    window.addEventListener("cadence:ai-mutated", h as EventListener);
+    return () => window.removeEventListener("cadence:ai-mutated", h as EventListener);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -188,6 +199,25 @@ function AutomationModal({
   const dsCfg = automation?.kind === "due_soon_nudge" ? (automation.config as { daysBefore?: number }) : null;
   const [dsDays, setDsDays] = useState(dsCfg?.daysBefore ?? 1);
 
+  // conditional_update
+  const cuCfg =
+    automation?.kind === "conditional_update"
+      ? (automation.config as {
+          matchField?: "tag" | "project";
+          matchValue?: string;
+          setPriority?: number | null;
+          setProject?: string | null;
+          addTag?: string | null;
+        })
+      : null;
+  const [cuMatchField, setCuMatchField] = useState<"tag" | "project">(cuCfg?.matchField ?? "tag");
+  const [cuMatchValue, setCuMatchValue] = useState(cuCfg?.matchValue ?? "");
+  const [cuSetPriority, setCuSetPriority] = useState<string>(
+    cuCfg?.setPriority != null ? String(cuCfg.setPriority) : ""
+  );
+  const [cuSetProject, setCuSetProject] = useState(cuCfg?.setProject ?? "");
+  const [cuAddTag, setCuAddTag] = useState(cuCfg?.addTag ?? "");
+
   const toggleDay = (d: number) =>
     setRtDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()));
 
@@ -203,8 +233,19 @@ function AutomationModal({
     } else if (kind === "event_prep_task") {
       if (!epTitle.trim()) return toast("Prep task title is required", "error");
       config = { title: epTitle, hoursBefore: epHours };
-    } else {
+    } else if (kind === "due_soon_nudge") {
       config = { daysBefore: dsDays };
+    } else {
+      if (!cuMatchValue.trim()) return toast(`Enter the ${cuMatchField} to match`, "error");
+      if (!cuSetPriority && !cuSetProject.trim() && !cuAddTag.trim())
+        return toast("Set at least one action (priority, project, or tag)", "error");
+      config = {
+        matchField: cuMatchField,
+        matchValue: cuMatchValue.trim(),
+        setPriority: cuSetPriority ? Number(cuSetPriority) : null,
+        setProject: cuSetProject.trim() || null,
+        addTag: cuAddTag.trim() || null,
+      };
     }
 
     setSaving(true);
@@ -349,6 +390,61 @@ function AutomationModal({
             <p className="mb-3 text-[11px] text-txt3">
               Requires push notifications to be enabled in Settings — sent once per task, around 7am your local time.
             </p>
+          </>
+        )}
+
+        {kind === "conditional_update" && (
+          <>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
+              When a task's
+            </label>
+            <div className="mb-3 flex gap-2">
+              <select
+                value={cuMatchField}
+                onChange={(e) => setCuMatchField(e.target.value as "tag" | "project")}
+                className="w-28 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              >
+                <option value="tag">tag</option>
+                <option value="project">project</option>
+              </select>
+              <input
+                value={cuMatchValue}
+                onChange={(e) => setCuMatchValue(e.target.value)}
+                placeholder={cuMatchField === "tag" ? "e.g. urgent" : "e.g. Work"}
+                className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+            </div>
+            <p className="mb-3 text-[11px] text-txt3">is set, apply the following (leave any blank to skip it):</p>
+
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Set priority</label>
+            <select
+              value={cuSetPriority}
+              onChange={(e) => setCuSetPriority(e.target.value)}
+              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            >
+              <option value="">Don't change</option>
+              <option value="0">None</option>
+              <option value="1">P1</option>
+              <option value="2">P2</option>
+              <option value="3">P3</option>
+              <option value="4">P4</option>
+            </select>
+
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Set project</label>
+            <input
+              value={cuSetProject}
+              onChange={(e) => setCuSetProject(e.target.value)}
+              placeholder="Leave blank to not change"
+              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Add tag</label>
+            <input
+              value={cuAddTag}
+              onChange={(e) => setCuAddTag(e.target.value)}
+              placeholder="Leave blank to not add a tag"
+              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            />
           </>
         )}
 
