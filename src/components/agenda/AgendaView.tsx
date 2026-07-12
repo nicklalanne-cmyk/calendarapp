@@ -102,8 +102,13 @@ export default function AgendaView() {
   }, [load]);
 
   const completeTask = async (t: Task) => {
+    // Optimistic — checking a task off shouldn't wait on a round trip.
+    setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: true } : x)));
     const { error } = await supabase.from("tasks").update({ is_done: true }).eq("id", t.id);
-    if (error) return toast(error.message, "error");
+    if (error) {
+      setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: false } : x)));
+      return toast(error.message, "error");
+    }
     load();
   };
 
@@ -121,7 +126,9 @@ export default function AgendaView() {
       : format(anchor, "EEEE, MMM d");
 
   // tasks with a due date inside the visible range (week-due tasks land on their week start)
-  const openTasks = tasks.filter((t) => !t.parent_id);
+  // !t.is_done here (not just the server-side query) so completing a task
+  // optimistically removes it from view immediately, before the reload lands.
+  const openTasks = tasks.filter((t) => !t.parent_id && !t.is_done);
   const inRange = openTasks.filter(
     (t) => t.due_date && t.due_date >= rangeStart && t.due_date <= rangeEnd
   );

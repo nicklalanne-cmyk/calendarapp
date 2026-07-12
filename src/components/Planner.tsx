@@ -214,8 +214,14 @@ export default function Planner() {
 
   const toggleTask = async (t: Task) => {
     const completing = !t.is_done;
+    // Optimistic — a checkbox click should feel instant, not wait on a round
+    // trip. loadTasks() below still reconciles with the server afterward.
+    setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: completing } : x)));
     const { error } = await supabase.from("tasks").update({ is_done: completing }).eq("id", t.id);
-    if (error) return toast(error.message, "error");
+    if (error) {
+      setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: t.is_done } : x)));
+      return toast(error.message, "error");
+    }
     if (completing && (t.rrule || t.repeat) && !t.parent_id) {
       const due = nextDue(t, t.due_date);
       if (due) {
@@ -238,12 +244,17 @@ export default function Planner() {
   };
 
   const deleteTask = async (t: Task) => {
+    // Optimistic removal — don't make the user wait to see it disappear.
+    setTasks((cur) => cur.filter((x) => x.id !== t.id));
     // Tasks are Cadence-native: nothing to remove from Google.
     const { error } = await supabase
       .from("tasks")
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", t.id);
-    if (error) return toast(error.message, "error");
+    if (error) {
+      loadTasks();
+      return toast(error.message, "error");
+    }
 
     loadTasks();
 
@@ -264,11 +275,13 @@ export default function Planner() {
   };
 
   const cyclePriority = async (t: Task) => {
-    const { error } = await supabase
-      .from("tasks")
-      .update({ priority: (t.priority + 1) % 5 })
-      .eq("id", t.id);
-    if (error) return toast(error.message, "error");
+    const next = (t.priority + 1) % 5;
+    setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, priority: next } : x)));
+    const { error } = await supabase.from("tasks").update({ priority: next }).eq("id", t.id);
+    if (error) {
+      setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, priority: t.priority } : x)));
+      return toast(error.message, "error");
+    }
     loadTasks();
   };
 
