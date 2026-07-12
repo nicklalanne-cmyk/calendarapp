@@ -26,13 +26,17 @@ export default function AgendaView() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [mode, setMode] = useState<"day" | "week">("day");
   const touchX = useRef<number | null>(null);
 
-  const days = useMemo(() => [anchor], [anchor]);
   const strip = useMemo(() => {
     const s0 = startOfWeek(anchor);
     return Array.from({ length: 7 }, (_, i) => addDays(s0, i));
   }, [anchor]);
+
+  // Week mode is a plain Sunday-start list of that week's tasks, day by
+  // day — not a calendar grid. Day mode still shows the day's events too.
+  const days = useMemo(() => (mode === "week" ? strip : [anchor]), [mode, anchor, strip]);
 
   const reqSeq = useRef(0);
 
@@ -96,7 +100,10 @@ export default function AgendaView() {
   const rangeStart = toISODate(days[0] ?? new Date());
   const rangeEnd = toISODate(days[days.length - 1] ?? new Date());
 
-  const title = format(anchor, "EEEE, MMM d");
+  const title =
+    mode === "week"
+      ? `${format(strip[0], "MMM d")} – ${format(strip[6], "MMM d")}`
+      : format(anchor, "EEEE, MMM d");
 
   // tasks with a due date inside the visible range (week-due tasks land on their week start)
   const openTasks = tasks.filter((t) => !t.parent_id);
@@ -204,6 +211,21 @@ export default function AgendaView() {
           >
             Today
           </button>
+          <div className="ml-1 flex overflow-hidden rounded-md border border-border text-xs">
+            {(["day", "week"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={
+                  m === mode
+                    ? "px-2 py-1 font-medium text-white bg-accent"
+                    : "px-2 py-1 text-txt2 hover:bg-surface"
+                }
+              >
+                {m === "day" ? "Day" : "Week"}
+              </button>
+            ))}
+          </div>
           {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-txt3" />}
           <div className="ml-auto flex items-center gap-2">
             <input
@@ -220,10 +242,18 @@ export default function AgendaView() {
         {/* mobile: title + week arrows, then an evenly-gridded 7-day strip */}
         <header className="shrink-0 border-b border-border px-4 pb-2 md:hidden">
           <div className="flex items-center gap-2 py-1">
-            <h1 className="min-w-0 truncate text-lg font-semibold">{format(anchor, "EEE, MMM d")}</h1>
+            <h1 className="min-w-0 truncate text-lg font-semibold">
+              {mode === "week" ? title : format(anchor, "EEE, MMM d")}
+            </h1>
             {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-txt3" />}
 
             <div className="ml-auto flex shrink-0 items-center gap-1">
+              <button
+                onClick={() => setMode((m) => (m === "day" ? "week" : "day"))}
+                className="rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
+              >
+                {mode === "day" ? "Week" : "Day"}
+              </button>
               <button
                 onClick={() => shiftWeek(-1)}
                 aria-label="Previous week"
@@ -263,7 +293,10 @@ export default function AgendaView() {
               return (
                 <button
                   key={d.toISOString()}
-                  onClick={() => setAnchor(d)}
+                  onClick={() => {
+                    setAnchor(d);
+                    setMode("day");
+                  }}
                   className="flex flex-col items-center gap-1 py-1.5 active:opacity-60"
                 >
                   <span
@@ -308,9 +341,12 @@ export default function AgendaView() {
             {days.map((day) => {
               const dayStr = format(day, "yyyy-MM-dd");
               const isToday = dayStr === todayStr;
-              const dayEvents = visibleEvents
-                .filter((e) => isSameDay(parseISO(e.start), day))
-                .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start));
+              const dayEvents =
+                mode === "day"
+                  ? visibleEvents
+                      .filter((e) => isSameDay(parseISO(e.start), day))
+                      .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start))
+                  : [];
               const dayTasks = openTasks
                 .filter(
                   (t) =>

@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon } from "lucide-react";
+import {
+  Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon, Pencil, X,
+} from "lucide-react";
 import type { Attendee } from "@/lib/types";
 
 export type EventDraft = {
@@ -57,12 +59,27 @@ export default function EventModal({
   onDelete?: () => void;
   onClose: () => void;
 }) {
+  // Existing events open read-only — you have to explicitly hit Edit to
+  // change anything. New events (no id yet) open straight into the form
+  // since there's nothing to view yet.
+  const [mode, setMode] = useState<"view" | "edit">(draft.id ? "view" : "edit");
+
   const [title, setTitle] = useState(draft.title);
   const [startTime, setStartTime] = useState(format(draft.start, "HH:mm"));
   const [endTime, setEndTime] = useState(format(draft.end, "HH:mm"));
   const [location, setLocation] = useState(draft.location ?? "");
   const [description, setDescription] = useState(draft.description ?? "");
   const [repeat, setRepeat] = useState<string>("none");
+
+  // Discard any in-progress edits and go back to the read-only view.
+  const cancelEdit = () => {
+    setTitle(draft.title);
+    setStartTime(format(draft.start, "HH:mm"));
+    setEndTime(format(draft.end, "HH:mm"));
+    setLocation(draft.location ?? "");
+    setDescription(draft.description ?? "");
+    setMode("view");
+  };
 
   // which calendar to write to — only meaningful for NEW events
   const [cals, setCals] = useState<Cal[]>([]);
@@ -137,12 +154,104 @@ export default function EventModal({
         className="max-h-[85%] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface2 p-5 shadow-2xl md:max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-1 text-lg font-semibold">{draft.id ? "Edit event" : "New event"}</h3>
+        <div className="mb-1 flex items-start gap-2">
+          <h3 className="flex-1 text-lg font-semibold">
+            {mode === "edit" ? (draft.id ? "Edit event" : "New event") : draft.title || "(No title)"}
+          </h3>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="-m-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-txt3 active:bg-surface hover:bg-surface hover:text-txt"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
         <p className="mb-4 text-sm text-txt3">
           {format(draft.start, "EEEE, MMM d")}
+          {mode === "view" && ` · ${format(draft.start, "h:mm a")} – ${format(draft.end, "h:mm a")}`}
           {draft.accountEmail ? ` · ${draft.accountEmail}` : ""}
         </p>
 
+        {mode === "view" ? (
+          <>
+            {draft.location && (
+              <div className="mb-3 flex items-center gap-2 text-sm text-txt2">
+                <MapPin className="h-4 w-4 shrink-0 text-txt3" />
+                <span className="min-w-0 flex-1">{draft.location}</span>
+              </div>
+            )}
+
+            {draft.description && (
+              <div className="mb-3 flex gap-2 text-sm text-txt2">
+                <AlignLeft className="mt-0.5 h-4 w-4 shrink-0 text-txt3" />
+                <p className="min-w-0 flex-1 whitespace-pre-wrap">{draft.description}</p>
+              </div>
+            )}
+
+            {draft.recurring && (
+              <div className="mb-3 flex items-center gap-2 text-xs text-txt3">
+                <Repeat className="h-3.5 w-3.5" /> Repeating event
+              </div>
+            )}
+
+            {draft.meetingLink && (
+              <a
+                href={draft.meetingLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mb-3 flex items-center justify-center gap-2 rounded-lg bg-accent/15 px-3 py-2 text-sm font-medium text-accentSoft hover:bg-accent/25"
+              >
+                <Video className="h-4 w-4" /> Join video call
+              </a>
+            )}
+
+            {attendees.length > 0 && (
+              <div className="mb-4 rounded-lg border border-border bg-surface p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase text-txt3">
+                  <Users className="h-3.5 w-3.5" /> {attendees.length} invited
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {attendees.map((a) => (
+                    <div key={a.email} className="flex items-center gap-2 text-sm">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: STATUS_COLOR[a.responseStatus ?? "needsAction"] ?? "#6E6E7A" }}
+                        title={a.responseStatus ?? "no response"}
+                      />
+                      <span className="truncate text-txt2">
+                        {a.name || a.email}
+                        {a.self ? " (you)" : ""}
+                        {a.organizer ? " · organizer" : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!draft.location && !draft.description && attendees.length === 0 && !draft.meetingLink && (
+              <p className="mb-4 text-sm text-txt3">No other details.</p>
+            )}
+
+            <div className="flex items-center gap-2">
+              {draft.id && onDelete ? (
+                <button
+                  onClick={() => onDelete()}
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-3 text-sm text-danger active:bg-surface2 md:px-3 md:py-2 md:hover:bg-surface"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete
+                </button>
+              ) : null}
+              <button
+                onClick={() => setMode("edit")}
+                className="ml-auto flex items-center gap-1.5 rounded-lg bg-accent px-6 py-3 text-sm font-medium text-white active:opacity-80 md:px-4 md:py-2 md:hover:bg-accentSoft"
+              >
+                <Pencil className="h-4 w-4" /> Edit
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         <input
           autoFocus
           value={title}
@@ -267,21 +376,12 @@ export default function EventModal({
         )}
 
         <div className="flex items-center gap-2">
-          {draft.id && onDelete ? (
-            <button
-              onClick={() => onDelete()}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-3 text-sm text-danger active:bg-surface2 md:px-3 md:py-2 md:hover:bg-surface"
-            >
-              <Trash2 className="h-4 w-4" /> Delete
-            </button>
-          ) : (
-            <button
-              onClick={onClose}
-              className="rounded-lg border border-border px-4 py-3 text-sm active:bg-surface2 md:px-3 md:py-2 md:hover:bg-surface"
-            >
-              Cancel
-            </button>
-          )}
+          <button
+            onClick={() => (draft.id ? cancelEdit() : onClose())}
+            className="rounded-lg border border-border px-4 py-3 text-sm active:bg-surface2 md:px-3 md:py-2 md:hover:bg-surface"
+          >
+            Cancel
+          </button>
           <button
             onClick={save}
             className="ml-auto rounded-lg bg-accent px-6 py-3 text-sm font-medium text-white active:opacity-80 md:px-4 md:py-2 md:hover:bg-accentSoft"
@@ -289,6 +389,8 @@ export default function EventModal({
             Save
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
