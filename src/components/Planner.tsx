@@ -25,6 +25,7 @@ import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskList from "@/components/tasks/TaskList";
 import TaskModal, { type TaskDraft, type LinkedEvent } from "@/components/tasks/TaskModal";
 import ScheduleSheet from "@/components/tasks/ScheduleSheet";
+import { runTaskCompletedAutomations, runEventCreatedAutomations } from "@/lib/automations";
 
 type View = "day" | "week" | "month";
 
@@ -307,6 +308,7 @@ export default function Planner() {
         toast("Repeating task rescheduled");
       }
     }
+    if (completing) await runTaskCompletedAutomations(supabase, t.title);
     loadTasks();
   };
 
@@ -515,6 +517,7 @@ export default function Planner() {
           )
         : await fetch(`/api/google/events`, { method: "POST", headers, body });
     if (!res.ok) toast("Couldn't save the event", "error");
+    else if (!d.id) await runEventCreatedAutomations(supabase, d.title, d.start);
     setDraft(null);
     clearEventsCache();
     loadEvents(true);

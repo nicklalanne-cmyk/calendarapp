@@ -17,6 +17,7 @@ import {
   Table2,
   BookOpen,
   Timer,
+  Zap,
   MessageSquarePlus,
   Inbox,
   Search,
@@ -129,6 +130,7 @@ export default function AppShell({
     { href: "/app/pages", label: "Pages", icon: Table2 },
     { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
     { href: "/app/focus", label: "Focus", icon: Timer },
+    { href: "/app/automations", label: "Automations", icon: Zap },
   ];
   const mobileNav = [nav[0], nav[1], nav[2], nav[3]]; // Planner, Agenda, Notes, Pages
 
@@ -410,6 +412,14 @@ export default function AppShell({
                 onClick={() => {
                   setSheet(false);
                   router.push("/app/focus");
+                }}
+              />
+              <SheetRow
+                icon={<Zap className="h-[18px] w-[18px]" />}
+                label="Automations"
+                onClick={() => {
+                  setSheet(false);
+                  router.push("/app/automations");
                 }}
               />
               <SheetRow

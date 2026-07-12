@@ -8,6 +8,14 @@ export const maxDuration = 60;
 type Sub = { id: string; user_id: string; endpoint: string; p256dh: string; auth: string };
 type Settings = { user_id: string; digest_hour: number; timezone: string; push_enabled: boolean };
 type Task = { id: string; user_id: string; title: string; due_date: string | null; priority: number };
+type AutomationRow = {
+  id: string;
+  user_id: string;
+  kind: string;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  last_run_on: string | null;
+};
 
 /**
  * Runs on a Vercel cron (every 15 min). Sends:
@@ -28,14 +36,27 @@ export async function GET(request: NextRequest) {
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
 
-  if (!url || !serviceKey || !vapidPublic || !vapidPrivate) {
+  if (!url || !serviceKey) {
     return NextResponse.json(
-      {
-        error:
-          "Push isn't configured. Needs SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.",
-      },
+      { error: "Cron isn't configured. Needs SUPABASE_SERVICE_ROLE_KEY." },
       { status: 501 }
     );
+  }
+
+  // service role: the cron runs with no user session, so RLS is bypassed deliberately
+  const db = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+  // --- recurring_task automations: create the configured task once per local
+  // day, on the configured days of the week. Runs regardless of whether push
+  // is set up, since it doesn't send a notification.
+  const automationsCreated = await runRecurringTaskAutomations(db);
+
+  if (!vapidPublic || !vapidPrivate) {
+    return NextResponse.json({
+      sent: 0,
+      automationsCreated,
+      reason: "push isn't configured (NEXT_PUBLIC_VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)",
+    });
   }
 
   webpush.setVapidDetails(
@@ -44,15 +65,12 @@ export async function GET(request: NextRequest) {
     vapidPrivate
   );
 
-  // service role: the cron runs with no user session, so RLS is bypassed deliberately
-  const db = createClient(url, serviceKey, { auth: { persistSession: false } });
-
   const { data: settingsRows } = await db
     .from("user_settings")
     .select("user_id, digest_hour, timezone, push_enabled")
     .eq("push_enabled", true);
   const settings = (settingsRows as Settings[] | null) ?? [];
-  if (settings.length === 0) return NextResponse.json({ sent: 0, reason: "nobody subscribed" });
+  if (settings.length === 0) return NextResponse.json({ sent: 0, automationsCreated, reason: "nobody subscribed" });
 
   const { data: subRows } = await db.from("push_subscriptions").select("*");
   const subs = (subRows as Sub[] | null) ?? [];
@@ -133,6 +151,38 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // --- due_soon_nudge automations: one push per matching task, per day
+    const { data: dueSoonRules } = await db
+      .from("automations")
+      .select("id, user_id, kind, config, enabled, last_run_on")
+      .eq("user_id", st.user_id)
+      .eq("kind", "due_soon_nudge")
+      .eq("enabled", true);
+    for (const rule of (dueSoonRules as AutomationRow[] | null) ?? []) {
+      const daysBefore = Number((rule.config as { daysBefore?: number }).daysBefore ?? 1);
+      const target = new Date(`${localDate}T00:00:00`);
+      target.setDate(target.getDate() + daysBefore);
+      const targetDate = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(
+        target
+      );
+      const { data: soon } = await db
+        .from("tasks")
+        .select("id, user_id, title, due_date, priority")
+        .eq("user_id", st.user_id)
+        .eq("is_done", false)
+        .is("deleted_at", null)
+        .is("parent_id", null)
+        .eq("due_date", targetDate);
+      for (const t of ((soon as Task[] | null) ?? []).slice(0, 5)) {
+        payloads.push({
+          key: `automation:${rule.id}:${t.id}`,
+          title: "Coming up",
+          body: `${t.title} — due ${daysBefore === 1 ? "tomorrow" : `in ${daysBefore} days`}`,
+          url: "/app/agenda",
+        });
+      }
+    }
+
     for (const p of payloads) {
       // dedupe: unique(user_id, dedupe_key) means a second insert just fails
       const { error: logErr } = await db
@@ -159,5 +209,57 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ sent, errors: results });
+  return NextResponse.json({ sent, automationsCreated, errors: results });
+}
+
+/** Creates the configured task, once per local calendar day, for every enabled
+ * recurring_task automation whose day-of-week matches today. Timezone comes
+ * from the owning user's settings row (defaults to UTC if they have none). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function runRecurringTaskAutomations(db: any): Promise<number> {
+  const { data: rules } = await db
+    .from("automations")
+    .select("id, user_id, kind, config, enabled, last_run_on")
+    .eq("kind", "recurring_task")
+    .eq("enabled", true);
+  const list = (rules as AutomationRow[] | null) ?? [];
+  if (list.length === 0) return 0;
+
+  const userIds = Array.from(new Set(list.map((r) => r.user_id)));
+  const { data: settingsRows } = await db
+    .from("user_settings")
+    .select("user_id, timezone")
+    .in("user_id", userIds);
+  const tzByUser = new Map<string, string>(
+    ((settingsRows as { user_id: string; timezone: string }[] | null) ?? []).map((s) => [s.user_id, s.timezone || "UTC"])
+  );
+
+  let created = 0;
+  const now = new Date();
+  for (const rule of list) {
+    const tz = tzByUser.get(rule.user_id) ?? "UTC";
+    const localDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+    if (rule.last_run_on === localDate) continue; // already ran today
+
+    const localDow = new Date(`${localDate}T00:00:00`).getDay();
+    const cfg = rule.config as { title?: string; daysOfWeek?: number[] };
+    if (!cfg.title || !Array.isArray(cfg.daysOfWeek) || !cfg.daysOfWeek.includes(localDow)) continue;
+
+    const { error: insertErr } = await db.from("tasks").insert({
+      user_id: rule.user_id,
+      title: cfg.title,
+      due_date: localDate,
+      due_kind: "day",
+      priority: 0,
+    });
+    if (insertErr) continue;
+    created++;
+    await db.from("automations").update({ last_run_on: localDate }).eq("id", rule.id);
+  }
+  return created;
 }

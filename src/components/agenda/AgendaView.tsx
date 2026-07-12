@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { addDays, format, isSameDay, parseISO } from "date-fns";
 import {
   Check, MapPin, Flag, Video, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
@@ -21,12 +20,12 @@ import {
 } from "@/lib/eventsCache";
 import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskModal, { type TaskDraft } from "@/components/tasks/TaskModal";
+import { runTaskCompletedAutomations, runEventCreatedAutomations } from "@/lib/automations";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 
 export default function AgendaView() {
   const supabase = createClient();
-  const router = useRouter();
   const [anchor, setAnchor] = useState(new Date());
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<EventDraft | null>(null);
@@ -207,6 +206,7 @@ export default function AgendaView() {
           )
         : await fetch(`/api/google/events`, { method: "POST", headers, body });
     if (!res.ok) toast("Couldn't save the event", "error");
+    else if (!d.id) await runEventCreatedAutomations(supabase, d.title, d.start);
     setDraft(null);
     clearEventsCache();
     load(true);
@@ -238,7 +238,8 @@ export default function AgendaView() {
   };
 
   const jumpToDay = (day: Date) => {
-    router.push(`/app?date=${format(day, "yyyy-MM-dd")}&view=day`);
+    setAnchor(day);
+    setMode("day");
   };
 
   const onDropOnDay = async (e: React.DragEvent, day: Date) => {
@@ -285,6 +286,7 @@ export default function AgendaView() {
       setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: false } : x)));
       return toast(error.message, "error");
     }
+    await runTaskCompletedAutomations(supabase, t.title);
     load();
   };
 
@@ -605,10 +607,7 @@ export default function AgendaView() {
                       <button
                         onClick={() => jumpToDay(day)}
                         title="Open this day to edit, add, or delete"
-                        className={clsx(
-                          "flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-txt3 hover:bg-surface2 hover:text-accent",
-                          emptyDay ? "" : "ml-auto"
-                        )}
+                        className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-txt3 hover:bg-surface2 hover:text-accent"
                       >
                         Open day <ArrowUpRight className="h-3 w-3" />
                       </button>
