@@ -377,6 +377,14 @@ export default function AgendaView() {
       ? `${format(strip[0], "MMM d")} – ${format(strip[6], "MMM d")}`
       : format(anchor, "EEEE, MMM d");
 
+  // Manual drag-to-reorder position. Tasks without one yet fall back to a key
+  // derived from priority (major) then created_at (minor) — i.e. today's default
+  // sort order — so untouched tasks keep behaving exactly as before until the
+  // user actually drags something.
+  const taskOrderKey = (t: Task) =>
+    t.sort_order ?? (t.priority || 99) * 1e13 + new Date(t.created_at).getTime();
+  const taskOrderCmp = (a: Task, b: Task) => taskOrderKey(a) - taskOrderKey(b);
+
   // tasks with a due date inside the visible range (week-due tasks land on their week start)
   // !t.is_done here (not just the server-side query) so completing a task
   // optimistically removes it from view immediately, before the reload lands.
@@ -386,33 +394,130 @@ export default function AgendaView() {
   );
   const overdue = openTasks
     .filter((t) => t.due_date && t.due_date < todayStr)
-    .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+    .sort(taskOrderCmp);
   // Week-kind tasks for the week currently on screen — shown once, as a
   // banner across the whole week, rather than repeated in every day column.
   const weekLongTasks =
     mode === "week"
       ? openTasks
           .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === toISODate(strip[0]))
-          .sort((a, b) => (a.priority || 99) - (b.priority || 99))
+          .sort(taskOrderCmp)
       : [];
   const unscheduled = openTasks
     .filter((t) => !t.due_date)
-    .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+    .sort(taskOrderCmp);
 
-  const TaskRow = ({ t, showDue, draggable }: { t: Task; showDue?: boolean; draggable?: boolean }) => {
+  // Drag a task onto another task row to reorder it — picks a sort_order value
+  // that sits between the two rows it lands between (in the *effective* order,
+  // i.e. taskOrderKey, not raw array index) so untouched siblings don't need to
+  // be renumbered. When dueSync is set (day columns in week view), dropping a
+  // task onto a row that lives on a different day also moves it to that day —
+  // a natural combination of "reorder" and the existing drag-to-move behavior.
+  const reorderTask = async (
+    list: Task[],
+    draggedId: string,
+    targetTask: Task,
+    position: "before" | "after",
+    dueSync?: boolean
+  ) => {
+    if (draggedId === targetTask.id) return;
+    const ordered = [...list].sort(taskOrderCmp);
+    const withoutDragged = ordered.filter((x) => x.id !== draggedId);
+    const targetIdx = withoutDragged.findIndex((x) => x.id === targetTask.id);
+    if (targetIdx === -1) return;
+    const insertAt = position === "before" ? targetIdx : targetIdx + 1;
+    const prev = withoutDragged[insertAt - 1];
+    const next = withoutDragged[insertAt];
+    const prevKey = prev ? taskOrderKey(prev) : next ? taskOrderKey(next) - 2 : 0;
+    const nextKey = next ? taskOrderKey(next) : prevKey + 2;
+    const newOrder = (prevKey + nextKey) / 2;
+
+    const patch: { sort_order: number; due_date?: string | null; due_kind?: "day" | "week" } = {
+      sort_order: newOrder,
+    };
+    if (dueSync) {
+      const dragged = tasks.find((x) => x.id === draggedId);
+      if (
+        dragged &&
+        ((dragged.due_date ?? null) !== (targetTask.due_date ?? null) ||
+          (dragged.due_kind ?? "day") !== (targetTask.due_kind ?? "day"))
+      ) {
+        patch.due_date = targetTask.due_date;
+        patch.due_kind = targetTask.due_kind ?? "day";
+      }
+    }
+
+    setTasks((cur) => cur.map((x) => (x.id === draggedId ? { ...x, ...patch } : x)));
+    const { error } = await supabase.from("tasks").update(patch).eq("id", draggedId);
+    if (error) {
+      toast(error.message, "error");
+      load(true);
+    }
+  };
+
+  const TaskRow = ({
+    t,
+    showDue,
+    draggable = true,
+    list,
+    dueSync,
+  }: {
+    t: Task;
+    showDue?: boolean;
+    draggable?: boolean;
+    /** The (unsorted) set of tasks t belongs to — passing this makes the row a
+     * drop target for drag-to-reorder within that set. */
+    list?: Task[];
+    dueSync?: boolean;
+  }) => {
     const chip = t.due_date ? dueChip(t.due_date, t.due_kind ?? "day") : null;
+    const [dragPos, setDragPos] = useState<"before" | "after" | null>(null);
     return (
       <div
         draggable={draggable}
         onDragStart={
           draggable
-            ? (e) => e.dataTransfer.setData("application/json", JSON.stringify({ kind: "task", id: t.id }))
+            ? (e) => {
+                e.dataTransfer.setData("application/json", JSON.stringify({ kind: "task", id: t.id }));
+                e.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
+        onDragOver={
+          list
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                setDragPos(e.clientY - rect.top < rect.height / 2 ? "before" : "after");
+              }
+            : undefined
+        }
+        onDragLeave={list ? () => setDragPos(null) : undefined}
+        onDrop={
+          list
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const pos = dragPos;
+                setDragPos(null);
+                const raw = e.dataTransfer.getData("application/json");
+                if (!raw) return;
+                try {
+                  const data = JSON.parse(raw);
+                  if (data.kind === "task" && data.id) reorderTask(list, data.id, t, pos ?? "after", dueSync);
+                } catch {
+                  /* ignore */
+                }
+              }
             : undefined
         }
         onClick={() => setEditingTask(t)}
         className={clsx(
           "group flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2.5 hover:bg-surface2 md:py-1.5",
-          draggable && "cursor-grab active:cursor-grabbing"
+          draggable && "cursor-grab active:cursor-grabbing",
+          dragPos === "before" && "border-t-2 border-accent",
+          dragPos === "after" && "border-b-2 border-accent"
         )}
       >
         <button
@@ -478,7 +583,7 @@ export default function AgendaView() {
           ? mode === "day" && t.due_date === dayWeekStart
           : t.due_date === dayStr
       )
-      .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+      .sort(taskOrderCmp);
     const daySharedEvents =
       mode === "day"
         ? sharedEvents
@@ -521,7 +626,8 @@ export default function AgendaView() {
             key={t.id}
             t={t}
             showDue={(t.due_kind ?? "day") === "week"}
-            draggable={mode === "week"}
+            list={dayTasks}
+            dueSync={mode === "week"}
           />
         ))}
 
@@ -630,17 +736,17 @@ export default function AgendaView() {
       </div>
       <Bucket title="Overdue" count={overdue.length} danger>
         {overdue.map((t) => (
-          <TaskRow key={t.id} t={t} showDue />
+          <TaskRow key={t.id} t={t} showDue list={overdue} />
         ))}
       </Bucket>
       <Bucket title={isSameDay(anchor, new Date()) ? "Due today" : "Due this day"} count={inRange.length}>
         {inRange.map((t) => (
-          <TaskRow key={t.id} t={t} showDue />
+          <TaskRow key={t.id} t={t} showDue list={inRange} />
         ))}
       </Bucket>
       <Bucket title="Unscheduled" count={unscheduled.length}>
         {unscheduled.map((t) => (
-          <TaskRow key={t.id} t={t} />
+          <TaskRow key={t.id} t={t} list={unscheduled} />
         ))}
       </Bucket>
       {overdue.length === 0 && inRange.length === 0 && unscheduled.length === 0 && (
@@ -853,7 +959,7 @@ export default function AgendaView() {
                   </p>
                   <div className="divide-y divide-txt3/10 rounded-lg border border-txt3/10">
                     {weekLongTasks.map((t) => (
-                      <TaskRow key={t.id} t={t} />
+                      <TaskRow key={t.id} t={t} list={weekLongTasks} />
                     ))}
                   </div>
                 </div>

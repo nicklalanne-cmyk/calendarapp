@@ -89,6 +89,7 @@ export type Task = {
   due_kind: "day" | "week";
   project: string | null;
   location: string | null;
+  sort_order: number | null;
   parent_id: string | null;
   tags: string[] | null;
   estimate_minutes: number | null;

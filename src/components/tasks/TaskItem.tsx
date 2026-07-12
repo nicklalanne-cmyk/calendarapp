@@ -100,8 +100,10 @@ export default function TaskItem({
           {task.is_done && <Check className="h-3.5 w-3.5 md:h-2.5 md:w-2.5" />}
         </button>
 
-        {/* content — must be allowed to shrink, and never wrap */}
-        <div className="min-w-0 flex-1">
+        {/* content — must be allowed to shrink, and never wrap. Reserves a small gutter
+            on desktop so truncated titles/chips end before the priority-flag lane instead
+            of running underneath it. */}
+        <div className="min-w-0 flex-1 md:pr-5">
           <button
             onClick={() => onOpenTask(task)}
             className={clsx(
@@ -256,11 +258,13 @@ export default function TaskItem({
           </button>
         </div>
 
-        {/* priority flag stays visible when set and the row isn't hovered */}
+        {/* priority flag stays visible when set and the row isn't hovered — vertically
+            centered on the row (not just "auto" positioned) so it sits in its own lane
+            instead of drifting over the title/meta text above or below it */}
         {pColor && (
           <Flag
             aria-hidden
-            className="pointer-events-none absolute right-2 hidden h-3.5 w-3.5 md:block md:group-hover:hidden"
+            className="pointer-events-none absolute right-2 top-1/2 hidden h-3.5 w-3.5 -translate-y-1/2 md:block md:group-hover:hidden"
             style={{ color: pColor, fill: pColor }}
           />
         )}
