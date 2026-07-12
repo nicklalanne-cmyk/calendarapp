@@ -374,6 +374,14 @@ export default function AgendaView() {
   const overdue = openTasks
     .filter((t) => t.due_date && t.due_date < todayStr)
     .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+  // Week-kind tasks for the week currently on screen — shown once, as a
+  // banner across the whole week, rather than repeated in every day column.
+  const weekLongTasks =
+    mode === "week"
+      ? openTasks
+          .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === toISODate(strip[0]))
+          .sort((a, b) => (a.priority || 99) - (b.priority || 99))
+      : [];
   const unscheduled = openTasks
     .filter((t) => !t.due_date)
     .sort((a, b) => (a.priority || 99) - (b.priority || 99));
@@ -446,12 +454,16 @@ export default function AgendaView() {
     const dayEvents = visibleEvents
       .filter((e) => isSameDay(parseISO(e.start), day))
       .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start));
-    // A week-kind task's due_date is stored as the Sunday that starts its
-    // week — show it on every day of that week, not just the Sunday.
+    // Week-kind tasks aren't tied to one day — in week mode they show once, in
+    // a "This week" banner above the grid, instead of repeating in every
+    // column. In day mode there's only one day on screen, so it's shown right
+    // there whenever the viewed day falls anywhere in that task's week.
     const dayWeekStart = format(startOfWeek(day), "yyyy-MM-dd");
     const dayTasks = openTasks
       .filter((t) =>
-        (t.due_kind ?? "day") === "week" ? t.due_date === dayWeekStart : t.due_date === dayStr
+        (t.due_kind ?? "day") === "week"
+          ? mode === "day" && t.due_date === dayWeekStart
+          : t.due_date === dayStr
       )
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
     const daySharedEvents =
@@ -490,6 +502,7 @@ export default function AgendaView() {
 
         {emptyDay && horizontal && <div className="py-2 text-xs text-txt3">Nothing scheduled</div>}
 
+        <div className="divide-y divide-txt3/20">
         {dayTasks.map((t) => (
           <TaskRow
             key={t.id}
@@ -585,6 +598,7 @@ export default function AgendaView() {
             </div>
           </div>
         ))}
+        </div>
       </div>
     );
   };
@@ -819,8 +833,20 @@ export default function AgendaView() {
         >
           {mode === "week" ? (
             <>
+              {weekLongTasks.length > 0 && (
+                <div className="border-b border-txt3/20 px-4 pb-3 pt-4 md:px-6 md:pt-6">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-txt3">
+                    This week
+                  </p>
+                  <div className="divide-y divide-txt3/20 rounded-lg border border-txt3/20">
+                    {weekLongTasks.map((t) => (
+                      <TaskRow key={t.id} t={t} />
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* mobile: stays a vertical, one-day-at-a-time list */}
-              <div className="mx-auto max-w-3xl p-4 md:hidden">
+              <div className="mx-auto max-w-3xl divide-y divide-txt3/20 p-4 md:hidden">
                 {days.map((day) => renderDayCell(day, false))}
               </div>
               {/* desktop: 7 columns side by side, so the whole week is visible at once.
@@ -828,8 +854,14 @@ export default function AgendaView() {
                   real room to wrap into words instead of collapsing to one letter per line
                   on any screen narrower than ~1600px; the row scrolls horizontally instead. */}
               <div className="hidden h-full gap-3 overflow-x-auto p-4 md:flex md:p-6">
-                {days.map((day) => (
-                  <div key={day.toISOString()} className="w-[220px] shrink-0">
+                {days.map((day, i) => (
+                  <div
+                    key={day.toISOString()}
+                    className={clsx(
+                      "w-[220px] shrink-0",
+                      i < days.length - 1 && "border-r border-txt3/20 pr-3"
+                    )}
+                  >
                     {renderDayCell(day, true)}
                   </div>
                 ))}
