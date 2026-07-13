@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticateApiRequest } from "@/lib/apiAuth";
 
-const NOTE_COLS = "id,title,body,note_date,task_id,pinned_at,created_at,updated_at,shared";
+const NOTE_COLS = "id,title,body,note_date,task_id,pinned_at,updated_at,shared";
 
 export async function GET(req: NextRequest) {
   const auth = await authenticateApiRequest(req);

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticateApiRequest } from "@/lib/apiAuth";
 
-const NOTE_COLS = "id,title,body,note_date,task_id,pinned_at,created_at,updated_at,shared";
+const NOTE_COLS = "id,title,body,note_date,task_id,pinned_at,updated_at,shared";
 const EDITABLE_FIELDS = ["title", "body", "note_date", "pinned_at"];
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
