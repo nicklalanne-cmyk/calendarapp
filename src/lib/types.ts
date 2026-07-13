@@ -128,6 +128,7 @@ export type Note = {
   updated_at: string;
   pinned_at: string | null;
   shared: boolean;
+  source: string | null;
 };
 
 export type Attendee = {

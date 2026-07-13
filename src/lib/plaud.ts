@@ -152,6 +152,7 @@ export async function syncPlaudAccount(db: SupabaseClient, account: PlaudAccount
         body,
         note_date: noteDate,
         shared: false,
+        source: "plaud",
       });
       if (error) throw new Error(error.message);
       delete pending[fileId];

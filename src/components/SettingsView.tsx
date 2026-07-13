@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2,
-  Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2, Mic, RefreshCw,
+  Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2,
 } from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
@@ -31,7 +31,6 @@ const PAGES = [
 ];
 
 type KeyMeta = { token_prefix: string; created_at: string; last_used_at: string | null };
-type PlaudAccount = { last_synced_created_at: string | null; pending: Record<string, string>; updated_at: string };
 
 export default function SettingsView() {
   const { settings, update, ready } = useSettings();
@@ -41,9 +40,6 @@ export default function SettingsView() {
   const [keyLoading, setKeyLoading] = useState(true);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [plaudAccount, setPlaudAccount] = useState<PlaudAccount | null>(null);
-  const [plaudLoading, setPlaudLoading] = useState(true);
-  const [plaudSyncing, setPlaudSyncing] = useState(false);
 
   useEffect(() => {
     setTheme((document.documentElement.getAttribute("data-theme") as "dark" | "light") || "dark");
@@ -56,32 +52,6 @@ export default function SettingsView() {
       .catch(() => {})
       .finally(() => setKeyLoading(false));
   }, []);
-
-  useEffect(() => {
-    fetch("/api/plaud/sync")
-      .then((r) => r.json())
-      .then((j) => setPlaudAccount(j.account ?? null))
-      .catch(() => {})
-      .finally(() => setPlaudLoading(false));
-  }, []);
-
-  const resyncPlaud = async () => {
-    setPlaudSyncing(true);
-    try {
-      const res = await fetch("/api/plaud/sync", { method: "POST" });
-      const j = await res.json();
-      if (!res.ok) return toast(j.error ?? "Sync failed", "error");
-      toast(
-        j.created > 0
-          ? `Synced — ${j.created} new note${j.created === 1 ? "" : "s"} added`
-          : "Synced — nothing new"
-      );
-      const status = await fetch("/api/plaud/sync").then((r) => r.json());
-      setPlaudAccount(status.account ?? null);
-    } finally {
-      setPlaudSyncing(false);
-    }
-  };
 
   const generateKey = async () => {
     setBusy(true);
@@ -380,50 +350,6 @@ export default function SettingsView() {
               <Download className="h-4 w-4" /> Download Skill (SKILL.md)
             </a>
           </div>
-        </section>
-
-        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-            <Mic className="h-4 w-4" /> Plaud
-          </h2>
-          <p className="mb-3 text-xs text-txt3">
-            Recordings from your connected Plaud account are checked hourly, and each one
-            with a finished AI summary is added here as a Note automatically.
-          </p>
-
-          {!plaudLoading && (
-            <div className="mb-3 flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
-              <Mic className="h-4 w-4 shrink-0 text-txt3" />
-              <div className="min-w-0 flex-1">
-                {plaudAccount ? (
-                  <>
-                    <div className="text-sm text-txt">Connected</div>
-                    <div className="text-[11px] text-txt3">
-                      {plaudAccount.last_synced_created_at
-                        ? `Last checkpoint ${new Date(plaudAccount.last_synced_created_at).toLocaleDateString()}`
-                        : "Not synced yet"}
-                      {Object.keys(plaudAccount.pending ?? {}).length > 0
-                        ? ` · ${Object.keys(plaudAccount.pending).length} recording(s) awaiting a Plaud summary`
-                        : ""}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-sm text-txt3">
-                    Not connected yet — ask Claude to connect your Plaud account.
-                  </div>
-                )}
-              </div>
-              {plaudAccount && (
-                <button
-                  onClick={resyncPlaud}
-                  disabled={plaudSyncing}
-                  className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-txt2 hover:bg-surface2 disabled:opacity-50"
-                >
-                  <RefreshCw className={clsx("h-3.5 w-3.5", plaudSyncing && "animate-spin")} /> Re-Sync now
-                </button>
-              )}
-            </div>
-          )}
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-4">

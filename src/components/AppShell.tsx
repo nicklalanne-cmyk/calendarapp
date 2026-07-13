@@ -24,6 +24,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  Mic,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
 import Reminders from "@/components/Reminders";
@@ -147,6 +148,7 @@ export default function AppShell({
     { href: "/app/notes", label: "Notes", icon: StickyNote },
     { href: "/app/pages", label: "Pages", icon: Table2 },
     { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
+    { href: "/app/plaud", label: "Plaud", icon: Mic },
     { href: "/app/focus", label: "Focus", icon: Timer },
     { href: "/app/automations", label: "Automations", icon: Zap },
   ];
@@ -432,6 +434,14 @@ export default function AppShell({
                 onClick={() => {
                   setSheet(false);
                   router.push("/app/notebooks");
+                }}
+              />
+              <SheetRow
+                icon={<Mic className="h-[18px] w-[18px]" />}
+                label="Plaud"
+                onClick={() => {
+                  setSheet(false);
+                  router.push("/app/plaud");
                 }}
               />
               <SheetRow
