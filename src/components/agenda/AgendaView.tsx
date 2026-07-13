@@ -394,7 +394,13 @@ export default function AgendaView() {
 
   // !t.is_done here (not just the server-side query) so completing a task
   // optimistically removes it from view immediately, before the reload lands.
-  const openTasks = tasks.filter((t) => !t.parent_id && !t.is_done);
+  // Subtasks (parent_id set) used to be filtered out entirely here — Agenda
+  // has no nested-list layout the way Planner's TaskList does, so they just
+  // vanished instead of showing anywhere. They're included now, tagged with
+  // a small "↳ parent title" hint in TaskRow so it's still clear they belong
+  // to something.
+  const openTasks = tasks.filter((t) => !t.is_done);
+  const taskById = new Map(tasks.map((x) => [x.id, x]));
   // These buckets are anchored to the real, current-moment "today" — not to
   // whichever day/week the main view happens to be showing — so "Due today"
   // never mislabels a future day's tasks just because you navigated forward.
@@ -488,6 +494,7 @@ export default function AgendaView() {
     compact?: boolean;
   }) => {
     const chip = t.due_date ? dueChip(t.due_date, t.due_kind ?? "day") : null;
+    const parent = t.parent_id ? taskById.get(t.parent_id) : undefined;
     const [dragPos, setDragPos] = useState<"before" | "after" | null>(null);
     return (
       <div
@@ -563,6 +570,14 @@ export default function AgendaView() {
             className={clsx("shrink-0", compact ? "h-2.5 w-2.5" : "h-3 w-3")}
             style={{ color: PRIORITY_COLOR[t.priority], fill: PRIORITY_COLOR[t.priority] }}
           />
+        )}
+        {parent && (
+          <span
+            title={`Subtask of "${parent.title}"`}
+            className={clsx("shrink-0 text-txt3", compact ? "text-[9px]" : "text-[11px] md:text-[10px]")}
+          >
+            ↳
+          </span>
         )}
         <span
           className={clsx(
