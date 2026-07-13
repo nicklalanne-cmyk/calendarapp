@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2,
-  Bell, ChevronRight,
+  Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2,
 } from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
 import Reminders from "@/components/Reminders";
+import { toast } from "@/lib/toast";
 
 const VIEWS = [
   { id: "day", label: "Day" },
@@ -29,14 +30,64 @@ const PAGES = [
   { href: "/app/focus", label: "Focus", icon: Timer, hint: "Pomodoro timer" },
 ];
 
+type KeyMeta = { token_prefix: string; created_at: string; last_used_at: string | null };
+
 export default function SettingsView() {
   const { settings, update, ready } = useSettings();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [saved, setSaved] = useState(false);
+  const [keyMeta, setKeyMeta] = useState<KeyMeta | null>(null);
+  const [keyLoading, setKeyLoading] = useState(true);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setTheme((document.documentElement.getAttribute("data-theme") as "dark" | "light") || "dark");
   }, []);
+
+  useEffect(() => {
+    fetch("/api/skill/key")
+      .then((r) => r.json())
+      .then((j) => setKeyMeta(j.key ?? null))
+      .catch(() => {})
+      .finally(() => setKeyLoading(false));
+  }, []);
+
+  const generateKey = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/skill/key", { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) return toast(j.error ?? "Couldn't generate a key", "error");
+      setNewToken(j.token);
+      setKeyMeta({ token_prefix: j.prefix, created_at: new Date().toISOString(), last_used_at: null });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeKey = async () => {
+    if (!confirm("Revoke this API key? Anything using it (Claude Code, Cowork, etc.) will stop working immediately.")) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/skill/key", { method: "DELETE" });
+      const j = await res.json();
+      if (!res.ok) return toast(j.error ?? "Couldn't revoke the key", "error");
+      setKeyMeta(null);
+      setNewToken(null);
+      toast("API key revoked");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyToken = () => {
+    if (!newToken) return;
+    navigator.clipboard.writeText(newToken).then(
+      () => toast("Copied"),
+      () => toast("Couldn't copy — select and copy manually", "error")
+    );
+  };
 
   const flash = () => {
     setSaved(true);
@@ -219,6 +270,85 @@ export default function SettingsView() {
               </p>
             </div>
             <Reminders variant="row" />
+          </div>
+        </section>
+
+        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <Sparkles className="h-4 w-4" /> Claude Skill
+          </h2>
+          <p className="mb-3 text-xs text-txt3">
+            Let Claude (Claude Code, Claude Desktop, Cowork, claude.ai) create, edit, and
+            delete your tasks, calendar events, notes, and automations directly — from
+            outside Cadence. Generate a key, download the Skill, and add the key as the
+            <code className="mx-1 rounded bg-surface2 px-1">CADENCE_API_TOKEN</code>
+            environment variable wherever Claude is running.
+          </p>
+
+          {newToken && (
+            <div className="mb-3 rounded-lg border border-accent/40 bg-accent/5 p-3">
+              <p className="mb-1.5 text-xs font-medium text-txt">
+                Copy this now — it won't be shown again.
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-surface px-2 py-1.5 text-xs">
+                  {newToken}
+                </code>
+                <button
+                  onClick={copyToken}
+                  className="flex shrink-0 items-center gap-1 rounded-md bg-accent px-2 py-1.5 text-xs font-medium text-white hover:bg-accentSoft"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!keyLoading && (
+            <div className="mb-3 flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+              <KeyRound className="h-4 w-4 shrink-0 text-txt3" />
+              <div className="min-w-0 flex-1">
+                {keyMeta ? (
+                  <>
+                    <div className="truncate text-sm text-txt">{keyMeta.token_prefix}…</div>
+                    <div className="text-[11px] text-txt3">
+                      Created {new Date(keyMeta.created_at).toLocaleDateString()}
+                      {keyMeta.last_used_at
+                        ? ` · last used ${new Date(keyMeta.last_used_at).toLocaleDateString()}`
+                        : " · never used yet"}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-txt3">No API key yet</div>
+                )}
+              </div>
+              {keyMeta && (
+                <button
+                  onClick={revokeKey}
+                  disabled={busy}
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-txt2 hover:border-danger hover:text-danger disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Revoke
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={generateKey}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accentSoft disabled:opacity-50"
+            >
+              <KeyRound className="h-4 w-4" /> {keyMeta ? "Regenerate API key" : "Generate API key"}
+            </button>
+            <a
+              href="/api/skill/download"
+              download="SKILL.md"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-txt2 hover:bg-surface2"
+            >
+              <Download className="h-4 w-4" /> Download Skill (SKILL.md)
+            </a>
           </div>
         </section>
 
