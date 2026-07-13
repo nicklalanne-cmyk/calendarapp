@@ -25,6 +25,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Mic,
+  Brain,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
 import Reminders from "@/components/Reminders";
@@ -51,6 +54,8 @@ export default function AppShell({
   const { isAdmin, openCount } = useAdminInbox();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [railExpanded, setRailExpanded] = useState(false);
+  const [thoughtsOpen, setThoughtsOpen] = useState(false);
+  const [thoughtsSheet, setThoughtsSheet] = useState(false);
   // Rendered blank on the server/first client pass and filled in after mount
   // so the browser's local timezone (used to format the build time) can't
   // cause a hydration mismatch against the server's.
@@ -75,10 +80,35 @@ export default function AppShell({
     setTheme(t);
     try {
       setRailExpanded(localStorage.getItem("cadence-rail-expanded") === "1");
+      setThoughtsOpen(localStorage.getItem("cadence-thoughts-open") === "1");
     } catch {
       /* ignore */
     }
   }, []);
+
+  const THOUGHTS_HREFS = ["/app/notes", "/app/pages", "/app/plaud"];
+
+  // Auto-expand the group whenever you're actually on one of its pages, so
+  // navigating there directly (e.g. via search or a bookmark) doesn't leave
+  // the sidebar looking like nothing is selected.
+  useEffect(() => {
+    if (THOUGHTS_HREFS.some((h) => pathname.startsWith(h))) {
+      setThoughtsOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  const toggleThoughts = () => {
+    setThoughtsOpen((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("cadence-thoughts-open", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   const toggleRail = () => {
     setRailExpanded((v) => {
@@ -142,17 +172,20 @@ export default function AppShell({
   // desktop rail nav; the phone's bottom bar shows the same first four.
   // Calendars now lives in Settings, and Search/Assistant moved to the
   // top-right utility bar, so the rail itself only has to hold the pages.
+  const thoughtsChildren = [
+    { href: "/app/notes", label: "Notes", icon: StickyNote },
+    { href: "/app/pages", label: "Pages", icon: Table2 },
+    { href: "/app/plaud", label: "Plaud", icon: Mic },
+  ];
   const nav = [
     { href: "/app", label: "Planner", icon: CalendarDays },
     { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
-    { href: "/app/notes", label: "Notes", icon: StickyNote },
-    { href: "/app/pages", label: "Pages", icon: Table2 },
+    { group: "thoughts", label: "Thoughts", icon: Brain, children: thoughtsChildren },
     { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
-    { href: "/app/plaud", label: "Plaud", icon: Mic },
     { href: "/app/focus", label: "Focus", icon: Timer },
     { href: "/app/automations", label: "Automations", icon: Zap },
-  ];
-  const mobileNav = [nav[0], nav[1], nav[2], nav[3]]; // Planner, Agenda, Notes, Pages
+  ] as const;
+  const mobileNav = [nav[0], nav[1]]; // Planner, Agenda — Thoughts opens its own sheet
 
   // FAB actions broadcast to whatever page is mounted; pages listen and open their own modal.
   const fire = (name: string) => window.dispatchEvent(new CustomEvent(name));
@@ -219,6 +252,59 @@ export default function AppShell({
         </button>
 
         {nav.map((n) => {
+          if ("group" in n) {
+            const Icon = n.icon;
+            const groupActive = n.children.some((c) => pathname.startsWith(c.href));
+            return (
+              <div key={n.group}>
+                <button
+                  onClick={() => {
+                    if (!railExpanded) setRailExpanded(true);
+                    toggleThoughts();
+                  }}
+                  title={railExpanded ? undefined : n.label}
+                  className={clsx(
+                    "flex h-11 w-full items-center rounded-xl transition",
+                    railExpanded ? "gap-3 px-3" : "w-11 justify-center",
+                    groupActive ? "bg-surface3 text-txt" : "text-txt3 hover:bg-surface hover:text-txt"
+                  )}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  {railExpanded && (
+                    <>
+                      <span className="truncate text-sm">{n.label}</span>
+                      {thoughtsOpen ? (
+                        <ChevronUp className="ml-auto h-4 w-4 shrink-0" />
+                      ) : (
+                        <ChevronDown className="ml-auto h-4 w-4 shrink-0" />
+                      )}
+                    </>
+                  )}
+                </button>
+                {railExpanded && thoughtsOpen && (
+                  <div className="ml-2 flex flex-col gap-1 border-l border-border pl-2">
+                    {n.children.map((c) => {
+                      const cActive = pathname.startsWith(c.href);
+                      const CIcon = c.icon;
+                      return (
+                        <Link
+                          key={c.href}
+                          href={c.href}
+                          className={clsx(
+                            "flex h-9 items-center gap-3 rounded-lg px-3 transition",
+                            cActive ? "bg-surface3 text-txt" : "text-txt3 hover:bg-surface hover:text-txt"
+                          )}
+                        >
+                          <CIcon className="h-4 w-4 shrink-0" />
+                          <span className="truncate text-sm">{c.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
           const active =
             n.href === "/app" ? pathname === "/app" : pathname.startsWith(n.href);
           const Icon = n.icon;
@@ -377,7 +463,7 @@ export default function AppShell({
           className="flex shrink-0 items-center justify-around border-t border-border bg-bg px-1 pt-1.5 lg:hidden"
           style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
         >
-          {mobileNav.slice(0, 2).map((n) => (
+          {mobileNav.map((n) => (
             <NavTab key={n.href} {...n} active={pathname.startsWith(n.href) && (n.href !== "/app" || pathname === "/app")} />
           ))}
 
@@ -388,9 +474,16 @@ export default function AppShell({
             onVoiceMemo={voiceMemo}
           />
 
-          {mobileNav.slice(2).map((n) => (
-            <NavTab key={n.href} {...n} active={pathname.startsWith(n.href)} />
-          ))}
+          <button
+            onClick={() => setThoughtsSheet(true)}
+            className={clsx(
+              "flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-[11px] font-medium transition active:opacity-60",
+              THOUGHTS_HREFS.some((h) => pathname.startsWith(h)) ? "text-accent" : "text-txt3"
+            )}
+          >
+            <Brain className={clsx("h-6 w-6", THOUGHTS_HREFS.some((h) => pathname.startsWith(h)) && "fill-accent/15")} />
+            Thoughts
+          </button>
 
           {/* Overlay, not a route — so it never interrupts what you were doing. */}
           <button
@@ -402,6 +495,39 @@ export default function AppShell({
           </button>
         </nav>
       </div>
+
+      {/* ---------------- mobile Thoughts sheet ---------------- */}
+      {thoughtsSheet && (
+        <div className="fixed inset-0 z-50 lg:hidden" onClick={() => setThoughtsSheet(false)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div
+            className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-surface p-4 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <span className="flex items-center gap-2 truncate text-sm text-txt3">
+                <Brain className="h-4 w-4" /> Thoughts
+              </span>
+              <button onClick={() => setThoughtsSheet(false)} className="rounded p-1 text-txt3">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-1">
+              {thoughtsChildren.map((c) => (
+                <SheetRow
+                  key={c.href}
+                  icon={<c.icon className="h-[18px] w-[18px]" />}
+                  label={c.label}
+                  onClick={() => {
+                    setThoughtsSheet(false);
+                    router.push(c.href);
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---------------- mobile overflow sheet ---------------- */}
       {sheet && (
@@ -434,14 +560,6 @@ export default function AppShell({
                 onClick={() => {
                   setSheet(false);
                   router.push("/app/notebooks");
-                }}
-              />
-              <SheetRow
-                icon={<Mic className="h-[18px] w-[18px]" />}
-                label="Plaud"
-                onClick={() => {
-                  setSheet(false);
-                  router.push("/app/plaud");
                 }}
               />
               <SheetRow
