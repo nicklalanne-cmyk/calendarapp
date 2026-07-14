@@ -810,7 +810,7 @@ export default function AgendaView() {
             )}
           >
             <div className="flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-start gap-2">
+              <div className="flex min-w-0 flex-1 items-start gap-2">
                 <span
                   className={clsx(
                     "shrink-0 rounded-full",
@@ -820,7 +820,7 @@ export default function AgendaView() {
                 />
                 <span
                   className={clsx(
-                    "text-txt",
+                    "min-w-0 text-txt",
                     horizontal ? "text-[10px] leading-tight" : "text-[15px] md:text-xs",
                     titleCls
                   )}
@@ -876,10 +876,10 @@ export default function AgendaView() {
             title="Shared with you by your partner"
           >
             <div className="flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-start gap-2">
+              <div className="flex min-w-0 flex-1 items-start gap-2">
                 <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accentSoft" />
-                <span className={clsx("flex items-center gap-1.5 text-[15px] text-txt md:text-xs", titleCls)}>
-                  <span className={titleCls}>{e.title}</span>
+                <span className={clsx("flex min-w-0 items-center gap-1.5 text-[15px] text-txt md:text-xs", titleCls)}>
+                  <span className={clsx("min-w-0", titleCls)}>{e.title}</span>
                   <Users className="h-3 w-3 shrink-0 text-accentSoft" />
                 </span>
               </div>

@@ -75,6 +75,7 @@ export default function EventModal({
   const [mode, setMode] = useState<"view" | "edit">(draft.id ? "view" : "edit");
 
   const [title, setTitle] = useState(draft.title);
+  const [date, setDate] = useState(format(draft.start, "yyyy-MM-dd"));
   const [startTime, setStartTime] = useState(format(draft.start, "HH:mm"));
   const [endTime, setEndTime] = useState(format(draft.end, "HH:mm"));
   const [location, setLocation] = useState(draft.location ?? "");
@@ -197,16 +198,16 @@ export default function EventModal({
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
 
-  const build = (base: Date, hhmm: string) => {
+  const build = (dateStr: string, hhmm: string) => {
     const [h, m] = hhmm.split(":").map(Number);
-    const d = new Date(base);
+    const d = new Date(`${dateStr}T00:00:00`);
     d.setHours(h, m, 0, 0);
     return d;
   };
 
   const save = () => {
-    const startAt = build(draft.start, startTime);
-    let endAt = build(draft.start, endTime);
+    const startAt = build(date, startTime);
+    let endAt = build(date, endTime);
     if (endAt <= startAt) endAt = new Date(endAt.getTime() + 24 * 60 * 60 * 1000);
     const [accId, calId] = target.includes("::") ? target.split("::") : [undefined, undefined];
     onSave({
@@ -391,6 +392,16 @@ export default function EventModal({
             </select>
           </div>
         )}
+
+        <div className="mb-3 flex items-center gap-2">
+          <CalIcon className="h-4 w-4 shrink-0 text-txt3" />
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
+          />
+        </div>
 
         <div className="mb-3 flex items-center gap-2">
           <input
