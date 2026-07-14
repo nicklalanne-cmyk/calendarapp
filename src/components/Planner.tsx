@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { addDays, addMonths, format } from "date-fns";
-import { ChevronLeft, ChevronRight, Link2, ListTodo, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Link2, ListTodo, Loader2, CalendarPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Task, CalendarEvent } from "@/lib/types";
 import { dayRange, weekRange, monthRange, fmtDayHeader, fmtMonthYear } from "@/lib/dates";
@@ -715,6 +715,13 @@ export default function Planner() {
             <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{periodLabel}</h1>
             {loadingEvents && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-txt3" />}
             <button
+              onClick={newEventNow}
+              aria-label="Add event"
+              className="flex h-11 shrink-0 items-center rounded-lg border border-border px-2.5 text-xs font-medium text-accent active:bg-surface2"
+            >
+              <CalendarPlus className="h-[18px] w-[18px]" />
+            </button>
+            <button
               onClick={() => setDate(new Date())}
               aria-label="Jump to today"
               className="flex h-11 shrink-0 items-center rounded-lg border border-border px-2.5 text-xs font-medium text-txt2 active:bg-surface2"
@@ -766,6 +773,13 @@ export default function Planner() {
             className="flex items-center rounded-md px-2 py-1 text-xs font-medium text-txt2 hover:bg-surface"
           >
             Today
+          </button>
+          <button
+            onClick={newEventNow}
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-accent hover:bg-surface"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" />
+            Event
           </button>
           <div className="ml-auto flex items-center gap-1">
             <button

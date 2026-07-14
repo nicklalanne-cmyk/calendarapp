@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Plus, Hash, SlidersHorizontal } from "lucide-react";
+import { Plus, Hash, SlidersHorizontal, ChevronDown, ChevronRight } from "lucide-react";
 import type { Task } from "@/lib/types";
 import TaskItem from "@/components/tasks/TaskItem";
 import { parseTaskInput, startOfWeek, type ParsedTask } from "@/lib/tasks";
@@ -37,6 +37,31 @@ export default function TaskList({
   const [value, setValue] = useState("");
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
   const todayStr = format(new Date(), "yyyy-MM-dd");
+
+  // Which section headers are collapsed, persisted across visits — mirrors
+  // AppShell's "cadence-thoughts-open" localStorage pattern. "Completed" is
+  // collapsed by default on first visit since it's usually just noise once
+  // there's anything in it.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("cadence-bucket-collapsed");
+      setCollapsed(new Set(raw ? (JSON.parse(raw) as string[]) : ["Completed"]));
+    } catch {
+      setCollapsed(new Set(["Completed"]));
+    }
+  }, []);
+  const toggleSection = (title: string) => {
+    setCollapsed((cur) => {
+      const next = new Set(cur);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      try {
+        localStorage.setItem("cadence-bucket-collapsed", JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
 
   const children = new Map<string, Task[]>();
   for (const t of tasks) {
@@ -91,32 +116,42 @@ export default function TaskList({
     setValue("");
   };
 
-  const Section = ({ title, items, danger }: { title: string; items: Task[]; danger?: boolean }) =>
-    items.length === 0 ? null : (
+  const Section = ({ title, items, danger }: { title: string; items: Task[]; danger?: boolean }) => {
+    if (items.length === 0) return null;
+    const isCollapsed = collapsed.has(title);
+    return (
       <div className="mb-3">
-        <div
-          className={`px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide ${
+        <button
+          onClick={() => toggleSection(title)}
+          className={`flex w-full items-center gap-1 px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide ${
             danger ? "text-danger" : "text-txt3"
           }`}
         >
+          {isCollapsed ? (
+            <ChevronRight className="h-3 w-3 shrink-0" />
+          ) : (
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          )}
           {title} <span className="text-txt3">{items.length}</span>
-        </div>
-        {items.map((t) => (
-          <TaskItem
-            key={t.id}
-            task={t}
-            subtasks={children.get(t.id) ?? []}
-            onToggle={onToggle}
-            onDelete={onDelete}
-            onCyclePriority={onCyclePriority}
-            onAddSubtask={onAddSubtask}
-            onOpenNote={onOpenNote}
-            onOpenTask={onOpenTask}
-            onSchedule={onSchedule}
-          />
-        ))}
+        </button>
+        {!isCollapsed &&
+          items.map((t) => (
+            <TaskItem
+              key={t.id}
+              task={t}
+              subtasks={children.get(t.id) ?? []}
+              onToggle={onToggle}
+              onDelete={onDelete}
+              onCyclePriority={onCyclePriority}
+              onAddSubtask={onAddSubtask}
+              onOpenNote={onOpenNote}
+              onOpenTask={onOpenTask}
+              onSchedule={onSchedule}
+            />
+          ))}
       </div>
     );
+  };
 
   const empty = open.length === 0 && done.length === 0;
 
