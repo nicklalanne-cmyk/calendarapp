@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Trash2, Repeat, CalendarDays, Unlink, Users } from "lucide-react";
+import { X, Trash2, Repeat, CalendarDays, Unlink, Users, Plus, Check } from "lucide-react";
 import LinkPicker from "@/components/notes/LinkPicker";
 import clsx from "clsx";
 import type { Task } from "@/lib/types";
@@ -55,6 +55,10 @@ export default function TaskModal({
   onSave,
   onDelete,
   onAddFollowUp,
+  subtasks,
+  onAddSubtask,
+  onToggleSubtask,
+  onDeleteSubtask,
 }: {
   task: Task | null;
   mode: "create" | "edit";
@@ -68,6 +72,13 @@ export default function TaskModal({
   onDelete?: (t: Task) => void;
   /** Creates a new follow-up task due on the picked date/offset. */
   onAddFollowUp?: (dueDate: string, dueKind: "day" | "week") => void;
+  /** This task's own subtasks (tasks whose parent_id === task.id) — pass along
+   * with the three handlers below to enable the Subtasks section. Edit mode
+   * only, since a subtask needs a real parent id to attach to. */
+  subtasks?: Task[];
+  onAddSubtask?: (title: string) => void;
+  onToggleSubtask?: (t: Task) => void;
+  onDeleteSubtask?: (t: Task) => void;
 }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [dueKind, setDueKind] = useState<"day" | "week">(task?.due_kind ?? "day");
@@ -99,6 +110,7 @@ export default function TaskModal({
   );
   const [picking, setPicking] = useState(false);
   const [shared, setShared] = useState(task?.shared ?? false);
+  const [subInput, setSubInput] = useState("");
   const isOwner = mode === "create" || !task || task.user_id === currentUserId;
 
   useEffect(() => {
@@ -537,6 +549,74 @@ export default function TaskModal({
               className={`${field} resize-y`}
             />
           </div>
+
+          {mode === "edit" && task && onAddSubtask && (
+            <div>
+              <label className={label}>
+                Subtasks{subtasks && subtasks.length > 0 ? ` (${subtasks.filter((s) => s.is_done).length}/${subtasks.length})` : ""}
+              </label>
+              {subtasks && subtasks.length > 0 && (
+                <div className="mb-2 space-y-1">
+                  {subtasks.map((s) => (
+                    <div
+                      key={s.id}
+                      className="group flex items-center gap-2 rounded-lg border border-border bg-bg px-2.5 py-1.5"
+                    >
+                      <button
+                        onClick={() => onToggleSubtask?.(s)}
+                        aria-label={s.is_done ? "Mark incomplete" : "Mark complete"}
+                        className={clsx(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition",
+                          s.is_done ? "border-accent bg-accent text-white" : "border-txt3 hover:border-accent"
+                        )}
+                      >
+                        {s.is_done && <Check className="h-3 w-3" />}
+                      </button>
+                      <span
+                        className={clsx(
+                          "min-w-0 flex-1 truncate text-sm",
+                          s.is_done ? "text-txt3 line-through" : "text-txt"
+                        )}
+                      >
+                        {s.title}
+                      </span>
+                      <button
+                        onClick={() => onDeleteSubtask?.(s)}
+                        className="shrink-0 rounded p-1 text-txt3 opacity-0 transition hover:text-danger group-hover:opacity-100"
+                        aria-label="Delete subtask"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-1.5">
+                <input
+                  value={subInput}
+                  onChange={(e) => setSubInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || !subInput.trim()) return;
+                    onAddSubtask(subInput.trim());
+                    setSubInput("");
+                  }}
+                  placeholder="Add a subtask…"
+                  className={field}
+                />
+                <button
+                  onClick={() => {
+                    if (!subInput.trim()) return;
+                    onAddSubtask(subInput.trim());
+                    setSubInput("");
+                  }}
+                  disabled={!subInput.trim()}
+                  className="flex shrink-0 items-center justify-center rounded-lg border border-border px-3 text-txt2 transition hover:bg-surface2 disabled:opacity-40"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {mode === "edit" && repeats && (

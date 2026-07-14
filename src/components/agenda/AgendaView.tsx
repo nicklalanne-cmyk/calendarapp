@@ -243,6 +243,38 @@ export default function AgendaView() {
     load(true);
   };
 
+  const addSubtaskToTask = async (parent: Task, title: string) => {
+    const { error } = await supabase
+      .from("tasks")
+      .insert({ title, parent_id: parent.id, project: parent.project });
+    if (error) return toast(error.message, "error");
+    load(true);
+  };
+
+  const toggleSubtask = async (t: Task) => {
+    const next = !t.is_done;
+    setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: next } : x)));
+    const { error } = await supabase.from("tasks").update({ is_done: next }).eq("id", t.id);
+    if (error) {
+      setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: !next } : x)));
+      return toast(error.message, "error");
+    }
+    load(true);
+  };
+
+  const deleteSubtask = async (t: Task) => {
+    setTasks((cur) => cur.filter((x) => x.id !== t.id));
+    const { error } = await supabase
+      .from("tasks")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", t.id);
+    if (error) {
+      load(true);
+      return toast(error.message, "error");
+    }
+    load(true);
+  };
+
   const openEvent = (ev: CalendarEvent) =>
     setDraft({
       id: ev.id,
@@ -1169,6 +1201,10 @@ export default function AgendaView() {
           mode="edit"
           projects={projectNames}
           currentUserId={currentUserId}
+          subtasks={tasks.filter((t) => t.parent_id === editingTask.id)}
+          onAddSubtask={(title) => addSubtaskToTask(editingTask, title)}
+          onToggleSubtask={toggleSubtask}
+          onDeleteSubtask={deleteSubtask}
           onSave={(patch) => updateTask(editingTask, patch)}
           onDelete={() => {
             deleteTask(editingTask);
