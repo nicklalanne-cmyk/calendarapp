@@ -598,14 +598,25 @@ export default function Planner() {
     [view]
   );
 
+  // Builds a new event draft on the day currently being viewed (not always
+  // "today") — previously this ignored `date` entirely, so navigating to a
+  // future day and clicking "+ Event" silently created the event today.
+  // Time-of-day still defaults sensibly: next hour if that viewed day is
+  // actually today, otherwise a plain 9am so it isn't stamped with whatever
+  // time you happen to be using the app.
   const newEventNow = useCallback(() => {
-    const s = new Date();
-    s.setMinutes(0, 0, 0);
-    s.setHours(s.getHours() + 1);
+    const now = new Date();
+    const s = new Date(date);
+    const isToday = s.toDateString() === now.toDateString();
+    if (isToday) {
+      s.setHours(now.getHours() + 1, 0, 0, 0);
+    } else {
+      s.setHours(9, 0, 0, 0);
+    }
     const e = new Date(s);
     e.setHours(e.getHours() + 1);
     setDraft({ title: "", start: s, end: e });
-  }, []);
+  }, [date]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
