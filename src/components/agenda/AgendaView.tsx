@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addDays, format, isSameDay, parseISO } from "date-fns";
+import { addDays, format, getWeek, isSameDay, parseISO } from "date-fns";
 import {
   Check, MapPin, Flag, Video, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  ListTodo, X, Loader2, Users, Plus, ArrowUpRight, PanelRightClose, PanelRightOpen,
+  ListTodo, X, Loader2, Users, Plus, ArrowUpRight, PanelRightClose, PanelRightOpen, Hash,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import type { CalendarEvent, SharedEvent, Task } from "@/lib/types";
-import { dayRange, fmtTime } from "@/lib/dates";
+import { dayRange, fmtTime, monthGridDays } from "@/lib/dates";
 import { getHiddenCals } from "@/lib/calfilter";
 import { toISODate } from "@/lib/recurrence";
 import { startOfWeek } from "@/lib/tasks";
@@ -24,6 +24,51 @@ import { runTaskCompletedAutomations, runEventCreatedAutomations, applyCondition
 import { useSettings } from "@/components/SettingsProvider";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
+// Matches PRIORITY_COLOR[2] — used for "today" so it reads distinctly from
+// the accent-colored "selected day" circle in the mobile mini month calendar.
+const TODAY_COLOR = "#F0A24F";
+
+// Compact month-grid picker for the mobile day view's header — lets you tap
+// any date to jump straight there instead of only stepping day-by-day.
+// Deliberately much smaller/denser than calendar/MonthView.tsx (no event
+// pills, 24px circles) since it's just a date picker here, not a calendar.
+function MiniMonthCalendar({ anchor, onPick }: { anchor: Date; onPick: (d: Date) => void }) {
+  const days = monthGridDays(anchor);
+  const todayStr = toISODate(new Date());
+  const anchorStr = toISODate(anchor);
+  const monthIdx = anchor.getMonth();
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="mb-1 grid grid-cols-7 text-center text-[10px] font-medium uppercase text-txt3">
+        {["S", "M", "T", "W", "T", "F", "S"].map((l, i) => (
+          <span key={i}>{l}</span>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-y-0.5">
+        {days.map((d) => {
+          const dStr = toISODate(d);
+          const inMonth = d.getMonth() === monthIdx;
+          const isToday = dStr === todayStr;
+          const isSel = dStr === anchorStr;
+          return (
+            <button
+              key={dStr}
+              onClick={() => onPick(d)}
+              className={clsx(
+                "mx-auto flex h-6 w-6 items-center justify-center rounded-full text-[11px] tabular-nums transition",
+                !inMonth && "opacity-30",
+                isSel ? "bg-accent font-semibold text-white" : "text-txt2"
+              )}
+              style={!isSel && isToday ? { color: TODAY_COLOR, fontWeight: 600 } : undefined}
+            >
+              {format(d, "d")}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function AgendaView() {
   const supabase = createClient();
@@ -584,7 +629,8 @@ export default function AgendaView() {
           }}
           aria-label={`Mark "${t.title}" done`}
           className={clsx(
-            "shrink-0 items-center justify-center rounded-full border-2 border-txt3 transition active:bg-accent active:text-white md:border md:hover:border-accent md:hover:bg-accent md:hover:text-white",
+            "shrink-0 items-center justify-center rounded-full border-2 transition active:bg-accent active:text-white md:border md:hover:border-accent md:hover:bg-accent md:hover:text-white",
+            chip?.overdue ? "border-danger" : "border-txt3",
             compact
               ? "hidden md:flex md:h-3 md:w-3 md:p-0"
               : "-m-1.5 flex h-9 w-9 p-1.5 md:m-0 md:h-[18px] md:w-[18px] md:p-0"
@@ -620,6 +666,12 @@ export default function AgendaView() {
         >
           {t.title}
         </span>
+        {t.project && !compact && (
+          <span className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[11px] text-accentSoft md:text-[10px]">
+            <Hash className="h-2.5 w-2.5 shrink-0" />
+            {t.project}
+          </span>
+        )}
         {t.location && (
           <span title={t.location} className="shrink-0">
             <MapPin className={clsx("text-txt3", compact ? "h-2.5 w-2.5" : "h-3 w-3")} />
@@ -653,13 +705,18 @@ export default function AgendaView() {
     // column. In day mode there's only one day on screen, so it's shown right
     // there whenever the viewed day falls anywhere in that task's week.
     const dayWeekStart = format(startOfWeek(day), "yyyy-MM-dd");
+    // Day mode + today: overdue tasks carry over into today's list instead of
+    // only living in the sidebar's "Overdue" bucket — matches how most
+    // day-view agenda apps surface anything still open, sorted oldest-due
+    // first via chronoCmp so carried-over items lead ahead of today's own.
     const dayTasks = openTasks
-      .filter((t) =>
-        (t.due_kind ?? "day") === "week"
-          ? mode === "day" && t.due_date === dayWeekStart
-          : t.due_date === dayStr
-      )
-      .sort(taskOrderCmp);
+      .filter((t) => {
+        if ((t.due_kind ?? "day") === "week") return mode === "day" && t.due_date === dayWeekStart;
+        if (!t.due_date) return false;
+        if (mode === "day" && isToday) return t.due_date <= dayStr;
+        return t.due_date === dayStr;
+      })
+      .sort(chronoCmp);
     const daySharedEvents =
       mode === "day"
         ? sharedEvents
@@ -725,7 +782,7 @@ export default function AgendaView() {
           <TaskRow
             key={t.id}
             t={t}
-            showDue={(t.due_kind ?? "day") === "week"}
+            showDue={(t.due_kind ?? "day") === "week" || t.due_date !== dayStr}
             list={dayTasks}
             dueSync={mode === "week"}
             compact={horizontal}
@@ -974,118 +1031,117 @@ export default function AgendaView() {
           </div>
         </header>
 
-        {/* mobile: title on its own row, controls on a second row, then an evenly-gridded 7-day strip */}
+        {/* mobile: day mode gets a big date number + a tap-to-jump month calendar;
+            week mode keeps the original title/controls/7-day-strip header. */}
         <header className="shrink-0 border-b border-border px-4 pb-2 md:hidden">
-          <div className="flex items-center gap-2 py-1">
-            <h1 className="min-w-0 flex-1 text-lg font-semibold">
-              {mode === "week" ? title : format(anchor, "EEEE, MMM d")}
-            </h1>
-            {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-txt3" />}
-            <button
-              onClick={() => setCreating(true)}
-              aria-label="Add task"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white active:opacity-80"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setTasksOpen(true)}
-              aria-label="Tasks"
-              className="flex shrink-0 items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
-            >
-              <ListTodo className="h-3.5 w-3.5" />
-              {overdue.length + dueToday.length + dueThisWeek.length}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1 pb-1">
+          <div className="flex items-center gap-1.5 py-1">
             <button
               onClick={() => setMode((m) => (m === "day" ? "week" : "day"))}
               className="rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
             >
               {mode === "day" ? "Week" : "Day"}
             </button>
-            <button
-              onClick={() => shiftWeek(-1)}
-              aria-label="Previous week"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-txt2 active:bg-surface2"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <button
-              onClick={() => shiftWeek(1)}
-              aria-label="Next week"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-txt2 active:bg-surface2"
-            >
-              <ChevronRight className="h-5 w-5" />
-            </button>
+            {mode === "week" && (
+              <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{title}</h1>
+            )}
+            {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-txt3" />}
             <button
               onClick={() => setAnchor(new Date())}
-              className="ml-auto rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
+              className="rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
             >
               Today
             </button>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={() => setCreating(true)}
+                aria-label="Add task"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white active:opacity-80"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setTasksOpen(true)}
+                aria-label="Tasks"
+                className="flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
+              >
+                <ListTodo className="h-3.5 w-3.5" />
+                {overdue.length + dueToday.length + dueThisWeek.length}
+              </button>
+            </div>
           </div>
 
-          {/* a 7-column grid can't drift: every day gets exactly 1/7 of the width */}
-          <div className="grid grid-cols-7">
-            {strip.map((d) => {
-              const sel = isSameDay(d, anchor);
-              const isTd = isSameDay(d, new Date());
-              return (
-                <button
-                  key={d.toISOString()}
-                  onClick={() => {
-                    setAnchor(d);
-                    setMode("day");
-                  }}
-                  className="flex flex-col items-center gap-1 py-1.5 active:opacity-60"
-                >
-                  <span
-                    className={clsx(
-                      "text-[11px] font-medium uppercase",
-                      sel ? "text-accent" : "text-txt3"
-                    )}
+          {mode === "day" ? (
+            <div className="flex items-start gap-3 py-2">
+              <div className="shrink-0">
+                <div className="text-5xl font-bold leading-none tabular-nums" style={{ color: TODAY_COLOR }}>
+                  {format(anchor, "d")}
+                </div>
+                <div className="mt-1.5 whitespace-nowrap text-xs text-txt3">
+                  {format(anchor, "EEEE")}, Week {getWeek(anchor, { weekStartsOn: 0 })}
+                </div>
+              </div>
+              <MiniMonthCalendar anchor={anchor} onPick={(d) => setAnchor(d)} />
+            </div>
+          ) : (
+            /* a 7-column grid can't drift: every day gets exactly 1/7 of the width */
+            <div className="grid grid-cols-7">
+              {strip.map((d) => {
+                const sel = isSameDay(d, anchor);
+                const isTd = isSameDay(d, new Date());
+                return (
+                  <button
+                    key={d.toISOString()}
+                    onClick={() => {
+                      setAnchor(d);
+                      setMode("day");
+                    }}
+                    className="flex flex-col items-center gap-1 py-1.5 active:opacity-60"
                   >
-                    {format(d, "EEEEE")}
-                  </span>
-                  <span
-                    className={clsx(
-                      "flex h-9 w-9 items-center justify-center rounded-full text-[15px] tabular-nums transition",
-                      sel
-                        ? "bg-accent font-semibold text-white"
-                        : isTd
-                          ? "font-semibold text-accent"
-                          : "text-txt2"
-                    )}
-                  >
-                    {format(d, "d")}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                    <span
+                      className={clsx(
+                        "text-[11px] font-medium uppercase",
+                        sel ? "text-accent" : "text-txt3"
+                      )}
+                    >
+                      {format(d, "EEEEE")}
+                    </span>
+                    <span
+                      className={clsx(
+                        "flex h-9 w-9 items-center justify-center rounded-full text-[15px] tabular-nums transition",
+                        sel
+                          ? "bg-accent font-semibold text-white"
+                          : isTd
+                            ? "font-semibold text-accent"
+                            : "text-txt2"
+                      )}
+                    >
+                      {format(d, "d")}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </header>
 
         <div
           className="min-h-0 flex-1 overflow-y-auto"
-          onTouchStart={
-            mode === "day"
-              ? (e) => {
-                  touchX.current = e.touches[0].clientX;
-                }
-              : undefined
-          }
-          onTouchEnd={
-            mode === "day"
-              ? (e) => {
-                  if (touchX.current == null) return;
-                  const dx = e.changedTouches[0].clientX - touchX.current;
-                  if (Math.abs(dx) > 60) shiftWeek(dx < 0 ? 1 : -1);
-                  touchX.current = null;
-                }
-              : undefined
-          }
+          onTouchStart={(e) => {
+            touchX.current = e.touches[0].clientX;
+          }}
+          onTouchEnd={(e) => {
+            if (touchX.current == null) return;
+            const dx = e.changedTouches[0].clientX - touchX.current;
+            if (Math.abs(dx) > 60) {
+              // Day mode swipes one day at a time; week mode swipes a whole
+              // week — previously this always shifted by a week even in day
+              // mode, so swiping "moved" the view but the visible day (and
+              // its tasks) never actually changed.
+              if (mode === "day") shift(dx < 0 ? 1 : -1);
+              else shiftWeek(dx < 0 ? 1 : -1);
+            }
+            touchX.current = null;
+          }}
         >
           {mode === "week" ? (
             <>
