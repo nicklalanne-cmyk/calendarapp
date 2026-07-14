@@ -25,7 +25,7 @@ import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskList from "@/components/tasks/TaskList";
 import TaskModal, { type TaskDraft, type LinkedEvent } from "@/components/tasks/TaskModal";
 import ScheduleSheet from "@/components/tasks/ScheduleSheet";
-import { runTaskCompletedAutomations, runEventCreatedAutomations, applyConditionalAutomations } from "@/lib/automations";
+import { fireTaskCreated, fireTaskUpdated, fireTaskCompleted, fireEventCreated, fireEventUpdated } from "@/lib/automations";
 
 type View = "day" | "week" | "month";
 
@@ -225,37 +225,46 @@ export default function Planner() {
 
   /* ---------- tasks ---------- */
   const addTask = async (p: ParsedTask) => {
-    const { error } = await supabase.from("tasks").insert({
-      title: p.title,
-      due_date: p.due_date,
-      due_kind: p.due_kind,
-      priority: p.priority,
-      rrule: p.rrule,
-      project: p.project,
-      tags: p.tags,
-      estimate_minutes: p.estimate_minutes,
-    });
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        title: p.title,
+        due_date: p.due_date,
+        due_kind: p.due_kind,
+        priority: p.priority,
+        rrule: p.rrule,
+        project: p.project,
+        tags: p.tags,
+        estimate_minutes: p.estimate_minutes,
+      })
+      .select()
+      .single();
     if (error) return toast(error.message, "error");
+    if (data) await fireTaskCreated(supabase, data as Task);
     loadTasks();
   };
 
   const createTask = async (draftIn: TaskDraft) => {
-    const d = await applyConditionalAutomations(supabase, draftIn);
-    const { error } = await supabase.from("tasks").insert({
-      title: d.title,
-      due_date: d.due_date,
-      due_kind: d.due_kind,
-      priority: d.priority,
-      rrule: d.rrule,
-      project: d.project,
-      location: d.location,
-      tags: d.tags,
-      estimate_minutes: d.estimate_minutes,
-      notes: d.notes,
-      shared: d.shared,
-      ...eventCols(d.linked_event),
-    });
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        title: draftIn.title,
+        due_date: draftIn.due_date,
+        due_kind: draftIn.due_kind,
+        priority: draftIn.priority,
+        rrule: draftIn.rrule,
+        project: draftIn.project,
+        location: draftIn.location,
+        tags: draftIn.tags,
+        estimate_minutes: draftIn.estimate_minutes,
+        notes: draftIn.notes,
+        shared: draftIn.shared,
+        ...eventCols(draftIn.linked_event),
+      })
+      .select()
+      .single();
     if (error) return toast(error.message, "error");
+    if (data) await fireTaskCreated(supabase, data as Task);
     setCreating(false);
     loadTasks();
   };
@@ -311,7 +320,7 @@ export default function Planner() {
         toast("Repeating task rescheduled");
       }
     }
-    if (completing) await runTaskCompletedAutomations(supabase, t.title);
+    if (completing) await fireTaskCompleted(supabase, t);
     loadTasks();
   };
 
@@ -377,7 +386,7 @@ export default function Planner() {
 
   const updateTask = async (t: Task, draft: TaskDraft) => {
     const { scope, linked_event, ...rest } = draft;
-    const patch = await applyConditionalAutomations(supabase, { ...rest, ...eventCols(linked_event) });
+    const patch = { ...rest, ...eventCols(linked_event) };
 
     if (scope === "occurrence" && (t.rrule || t.repeat)) {
       // Keep the series alive: spin the NEXT occurrence off as its own repeating task,
@@ -406,6 +415,15 @@ export default function Planner() {
       .update({ ...patch, repeat: patch.rrule ? null : null })
       .eq("id", t.id);
     if (error) return toast(error.message, "error");
+
+    await fireTaskUpdated(supabase, {
+      id: t.id,
+      title: patch.title ?? t.title,
+      project: patch.project ?? t.project,
+      tags: patch.tags ?? t.tags,
+      priority: patch.priority ?? t.priority,
+      due_date: patch.due_date ?? t.due_date,
+    });
 
     if (scope === "occurrence") toast("Updated this occurrence — the series continues");
     setEditing(null);
@@ -539,7 +557,8 @@ export default function Planner() {
           )
         : await fetch(`/api/google/events`, { method: "POST", headers, body });
     if (!res.ok) toast("Couldn't save the event", "error");
-    else if (!d.id) await runEventCreatedAutomations(supabase, d.title, d.start);
+    else if (!d.id) await fireEventCreated(supabase, d.title, d.start, d.location);
+    else await fireEventUpdated(supabase, d.title, d.start, d.location);
     setDraft(null);
     clearEventsCache();
     loadEvents(true);

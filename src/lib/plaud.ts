@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fireNoteCreated } from "@/lib/automations";
+import { sendPushToUser } from "@/lib/push-server";
 
 const TOKEN_URL = "https://platform.plaud.ai/developer/api/oauth/third-party/access-token/refresh";
 const API_BASE = "https://platform.plaud.ai/developer/api";
@@ -155,6 +157,14 @@ export async function syncPlaudAccount(db: SupabaseClient, account: PlaudAccount
         source: "plaud",
       });
       if (error) throw new Error(error.message);
+      // service-role client has no session to resolve a user from, so pass
+      // the owning user's id explicitly.
+      await fireNoteCreated(
+        db,
+        { title: `Plaud: ${detail.name}`, body, source: "plaud" },
+        account.user_id,
+        sendPushToUser
+      );
       delete pending[fileId];
       created++;
     } catch {

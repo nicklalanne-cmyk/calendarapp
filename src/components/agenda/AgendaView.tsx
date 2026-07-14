@@ -20,7 +20,7 @@ import {
 } from "@/lib/eventsCache";
 import EventModal, { type EventDraft } from "@/components/calendar/EventModal";
 import TaskModal, { type TaskDraft } from "@/components/tasks/TaskModal";
-import { runTaskCompletedAutomations, runEventCreatedAutomations, applyConditionalAutomations } from "@/lib/automations";
+import { fireTaskCreated, fireTaskUpdated, fireTaskCompleted, fireEventCreated, fireEventUpdated } from "@/lib/automations";
 import { useSettings } from "@/components/SettingsProvider";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
@@ -207,32 +207,36 @@ export default function AgendaView() {
   );
 
   const createTask = async (draftIn: TaskDraft) => {
-    const d = await applyConditionalAutomations(supabase, draftIn);
-    const { error } = await supabase.from("tasks").insert({
-      title: d.title,
-      due_date: d.due_date,
-      due_kind: d.due_kind,
-      priority: d.priority,
-      rrule: d.rrule,
-      project: d.project,
-      location: d.location,
-      tags: d.tags,
-      estimate_minutes: d.estimate_minutes,
-      notes: d.notes,
-      shared: d.shared,
-      linked_event_id: d.linked_event?.id ?? null,
-      linked_event_calendar_id: d.linked_event?.calendarId ?? null,
-      linked_event_account_id: d.linked_event?.accountId || null,
-      linked_event_title: d.linked_event?.title ?? null,
-      linked_event_start: d.linked_event?.start || null,
-    });
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        title: draftIn.title,
+        due_date: draftIn.due_date,
+        due_kind: draftIn.due_kind,
+        priority: draftIn.priority,
+        rrule: draftIn.rrule,
+        project: draftIn.project,
+        location: draftIn.location,
+        tags: draftIn.tags,
+        estimate_minutes: draftIn.estimate_minutes,
+        notes: draftIn.notes,
+        shared: draftIn.shared,
+        linked_event_id: draftIn.linked_event?.id ?? null,
+        linked_event_calendar_id: draftIn.linked_event?.calendarId ?? null,
+        linked_event_account_id: draftIn.linked_event?.accountId || null,
+        linked_event_title: draftIn.linked_event?.title ?? null,
+        linked_event_start: draftIn.linked_event?.start || null,
+      })
+      .select()
+      .single();
     if (error) return toast(error.message, "error");
+    if (data) await fireTaskCreated(supabase, data as Task);
     setCreating(false);
     load(true);
   };
 
   const updateTask = async (t: Task, d: TaskDraft) => {
-    const patch = await applyConditionalAutomations(supabase, {
+    const patch = {
       title: d.title,
       due_date: d.due_date,
       due_kind: d.due_kind,
@@ -249,9 +253,17 @@ export default function AgendaView() {
       linked_event_account_id: d.linked_event?.accountId || null,
       linked_event_title: d.linked_event?.title ?? null,
       linked_event_start: d.linked_event?.start || null,
-    });
+    };
     const { error } = await supabase.from("tasks").update(patch).eq("id", t.id);
     if (error) return toast(error.message, "error");
+    await fireTaskUpdated(supabase, {
+      id: t.id,
+      title: patch.title ?? t.title,
+      project: patch.project ?? t.project,
+      tags: patch.tags ?? t.tags,
+      priority: patch.priority ?? t.priority,
+      due_date: patch.due_date ?? t.due_date,
+    });
     setEditingTask(null);
     load(true);
   };
@@ -357,7 +369,8 @@ export default function AgendaView() {
           )
         : await fetch(`/api/google/events`, { method: "POST", headers, body });
     if (!res.ok) toast("Couldn't save the event", "error");
-    else if (!d.id) await runEventCreatedAutomations(supabase, d.title, d.start);
+    else if (!d.id) await fireEventCreated(supabase, d.title, d.start, d.location);
+    else await fireEventUpdated(supabase, d.title, d.start, d.location);
     setDraft(null);
     clearEventsCache();
     load(true);
@@ -437,7 +450,7 @@ export default function AgendaView() {
       setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: false } : x)));
       return toast(error.message, "error");
     }
-    await runTaskCompletedAutomations(supabase, t.title);
+    await fireTaskCompleted(supabase, t);
     load();
   };
 

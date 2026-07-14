@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import webpush from "web-push";
+import { rulesForTrigger, runActions, matchesAll, taskCtx, type TaskLike, type RuleConfig } from "@/lib/automations";
+import { sendPushToUser } from "@/lib/push-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -8,20 +10,14 @@ export const maxDuration = 60;
 type Sub = { id: string; user_id: string; endpoint: string; p256dh: string; auth: string };
 type Settings = { user_id: string; digest_hour: number; timezone: string; push_enabled: boolean };
 type Task = { id: string; user_id: string; title: string; due_date: string | null; priority: number };
-type AutomationRow = {
-  id: string;
-  user_id: string;
-  kind: string;
-  config: Record<string, unknown>;
-  enabled: boolean;
-  last_run_on: string | null;
-};
 
 /**
  * Runs on a Vercel cron (every 15 min). Sends:
  *   - a morning digest of what's due today, at each user's chosen hour
  *   - a nudge for anything that's newly overdue
- * Deduped via push_log so a user never gets the same notification twice.
+ *   - fires "On a schedule (days of week)" and "due date coming up" automation rules
+ * Deduped via push_log (digest/overdue) and automation_fires (rules) so a user
+ * never gets the same notification/action twice.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -46,10 +42,13 @@ export async function GET(request: NextRequest) {
   // service role: the cron runs with no user session, so RLS is bypassed deliberately
   const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  // --- recurring_task automations: create the configured task once per local
-  // day, on the configured days of the week. Runs regardless of whether push
-  // is set up, since it doesn't send a notification.
-  const automationsCreated = await runRecurringTaskAutomations(db);
+  // --- schedule_weekly rules: fire the configured actions once per local day,
+  // on the configured days of the week. Runs regardless of whether push is
+  // set up, since actions may not include a notification.
+  const scheduleFired = await runScheduleWeeklyAutomations(db);
+  // --- date_relative rules: fire once per matching task, per local day.
+  const dateRelativeFired = await runDateRelativeAutomations(db);
+  const automationsCreated = scheduleFired + dateRelativeFired;
 
   if (!vapidPublic || !vapidPrivate) {
     return NextResponse.json({
@@ -151,38 +150,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // --- due_soon_nudge automations: one push per matching task, per day
-    const { data: dueSoonRules } = await db
-      .from("automations")
-      .select("id, user_id, kind, config, enabled, last_run_on")
-      .eq("user_id", st.user_id)
-      .eq("kind", "due_soon_nudge")
-      .eq("enabled", true);
-    for (const rule of (dueSoonRules as AutomationRow[] | null) ?? []) {
-      const daysBefore = Number((rule.config as { daysBefore?: number }).daysBefore ?? 1);
-      const target = new Date(`${localDate}T00:00:00`);
-      target.setDate(target.getDate() + daysBefore);
-      const targetDate = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(
-        target
-      );
-      const { data: soon } = await db
-        .from("tasks")
-        .select("id, user_id, title, due_date, priority")
-        .eq("user_id", st.user_id)
-        .eq("is_done", false)
-        .is("deleted_at", null)
-        .is("parent_id", null)
-        .eq("due_date", targetDate);
-      for (const t of ((soon as Task[] | null) ?? []).slice(0, 5)) {
-        payloads.push({
-          key: `automation:${rule.id}:${t.id}`,
-          title: "Coming up",
-          body: `${t.title} — due ${daysBefore === 1 ? "tomorrow" : `in ${daysBefore} days`}`,
-          url: "/app/agenda",
-        });
-      }
-    }
-
     for (const p of payloads) {
       // dedupe: unique(user_id, dedupe_key) means a second insert just fails
       const { error: logErr } = await db
@@ -212,20 +179,16 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ sent, automationsCreated, errors: results });
 }
 
-/** Creates the configured task, once per local calendar day, for every enabled
- * recurring_task automation whose day-of-week matches today. Timezone comes
- * from the owning user's settings row (defaults to UTC if they have none). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function runRecurringTaskAutomations(db: any): Promise<number> {
-  const { data: rules } = await db
-    .from("automations")
-    .select("id, user_id, kind, config, enabled, last_run_on")
-    .eq("kind", "recurring_task")
-    .eq("enabled", true);
-  const list = (rules as AutomationRow[] | null) ?? [];
-  if (list.length === 0) return 0;
+/** Runs every enabled "On a schedule (days of week)" rule whose daysOfWeek
+ * includes today (in the owning user's local timezone), once per local
+ * calendar day. Dedup is a row in automation_fires keyed on (rule.id,
+ * rule.id, today) — schedule rules have no per-entity triggering row, so the
+ * rule itself stands in as the "entity" for the unique constraint. */
+async function runScheduleWeeklyAutomations(db: SupabaseClient): Promise<number> {
+  const rules = await rulesForTrigger(db, "schedule_weekly");
+  if (rules.length === 0) return 0;
 
-  const userIds = Array.from(new Set(list.map((r) => r.user_id)));
+  const userIds = Array.from(new Set(rules.map((r) => r.user_id)));
   const { data: settingsRows } = await db
     .from("user_settings")
     .select("user_id, timezone")
@@ -234,9 +197,13 @@ async function runRecurringTaskAutomations(db: any): Promise<number> {
     ((settingsRows as { user_id: string; timezone: string }[] | null) ?? []).map((s) => [s.user_id, s.timezone || "UTC"])
   );
 
-  let created = 0;
+  let fired = 0;
   const now = new Date();
-  for (const rule of list) {
+  for (const rule of rules) {
+    const cfg = rule.config as RuleConfig;
+    const daysOfWeek = cfg.daysOfWeek ?? [];
+    if (daysOfWeek.length === 0) continue;
+
     const tz = tzByUser.get(rule.user_id) ?? "UTC";
     const localDate = new Intl.DateTimeFormat("en-CA", {
       timeZone: tz,
@@ -244,22 +211,85 @@ async function runRecurringTaskAutomations(db: any): Promise<number> {
       month: "2-digit",
       day: "2-digit",
     }).format(now);
-    if (rule.last_run_on === localDate) continue; // already ran today
-
     const localDow = new Date(`${localDate}T00:00:00`).getDay();
-    const cfg = rule.config as { title?: string; daysOfWeek?: number[] };
-    if (!cfg.title || !Array.isArray(cfg.daysOfWeek) || !cfg.daysOfWeek.includes(localDow)) continue;
+    if (!daysOfWeek.includes(localDow)) continue;
 
-    const { error: insertErr } = await db.from("tasks").insert({
-      user_id: rule.user_id,
-      title: cfg.title,
-      due_date: localDate,
-      due_kind: "day",
-      priority: 0,
-    });
-    if (insertErr) continue;
-    created++;
-    await db.from("automations").update({ last_run_on: localDate }).eq("id", rule.id);
+    const { error: fireErr } = await db
+      .from("automation_fires")
+      .insert({ rule_id: rule.id, entity_id: rule.id, fired_on: localDate });
+    if (fireErr) continue; // already fired today
+
+    await runActions(
+      db,
+      rule.user_id,
+      cfg.actions,
+      { title: "", anchorDate: new Date(`${localDate}T00:00:00`), entity: null },
+      sendPushToUser
+    );
+    fired++;
   }
-  return created;
+  return fired;
+}
+
+/** Runs every enabled "due date coming up" rule against that user's tasks
+ * whose due_date lands exactly daysOffset days from today (local). Dedup is
+ * a row in automation_fires keyed on (rule.id, task.id, today), so a task
+ * that stays at that offset across repeated 15-min cron ticks (it won't —
+ * dates only match once — but also across restarts/re-runs) only fires once. */
+async function runDateRelativeAutomations(db: SupabaseClient): Promise<number> {
+  const rules = await rulesForTrigger(db, "date_relative");
+  if (rules.length === 0) return 0;
+
+  const userIds = Array.from(new Set(rules.map((r) => r.user_id)));
+  const { data: settingsRows } = await db
+    .from("user_settings")
+    .select("user_id, timezone")
+    .in("user_id", userIds);
+  const tzByUser = new Map<string, string>(
+    ((settingsRows as { user_id: string; timezone: string }[] | null) ?? []).map((s) => [s.user_id, s.timezone || "UTC"])
+  );
+
+  let fired = 0;
+  const now = new Date();
+  for (const rule of rules) {
+    const cfg = rule.config as RuleConfig;
+    const daysOffset = cfg.daysOffset ?? 1;
+
+    const tz = tzByUser.get(rule.user_id) ?? "UTC";
+    const localDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+    const target = new Date(`${localDate}T00:00:00`);
+    target.setDate(target.getDate() + daysOffset);
+    const targetDate = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(
+      target
+    );
+
+    const { data: matches } = await db
+      .from("tasks")
+      .select("id, title, project, tags, priority, due_date")
+      .eq("user_id", rule.user_id)
+      .eq("is_done", false)
+      .is("deleted_at", null)
+      .is("parent_id", null)
+      .eq("due_date", targetDate);
+    const tasks = (matches as TaskLike[] | null) ?? [];
+
+    for (const t of tasks) {
+      const ctx = taskCtx(t);
+      if (!matchesAll(ctx, cfg.conditions)) continue;
+
+      const { error: fireErr } = await db
+        .from("automation_fires")
+        .insert({ rule_id: rule.id, entity_id: t.id, fired_on: localDate });
+      if (fireErr) continue; // already fired for this task today
+
+      await runActions(db, rule.user_id, cfg.actions, ctx, sendPushToUser);
+      fired++;
+    }
+  }
+  return fired;
 }

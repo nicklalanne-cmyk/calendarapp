@@ -169,42 +169,40 @@ const TOOLS = [
   {
     name: "list_automations",
     description:
-      "List the user's automations (rules that run tasks/events automatically). Use this before update_automation or delete_automation so you have a real id.",
+      "List the user's automations (if/then rules that run tasks/events/notes/notifications automatically). Use this before update_automation or delete_automation so you have a real id.",
     input_schema: {
       type: "object",
-      properties: {
-        kind: {
-          type: "string",
-          enum: ["recurring_task", "task_completed_followup", "event_prep_task", "due_soon_nudge", "conditional_update"],
-          description: "Optional filter to only one kind.",
-        },
-      },
+      properties: {},
     },
   },
   {
     name: "create_automation",
     description:
-      `Create an automation rule. Five kinds are supported, each with its own config shape:
-- recurring_task: config {title: string, daysOfWeek: number[] (0=Sun..6=Sat), project?: string, priority?: number} — creates a task automatically on the chosen weekdays.
-- task_completed_followup: config {filter?: string (only fires if the completed task's title contains this), title: string (supports {task} placeholder), dueOffsetDays: number, project?: string, priority?: number} — creates a follow-up task when any task is completed.
-- event_prep_task: config {title: string (supports {event} placeholder), hoursBefore: number, project?: string, priority?: number} — creates a prep task before a newly created calendar event.
-- due_soon_nudge: config {daysBefore: number} — sends a push notification before a task's due date. Requires the user to have push notifications enabled.
-- conditional_update: config {matchField: "tag"|"project", matchValue: string, setPriority?: number|null, setProject?: string|null, addTag?: string|null} — whenever a task is created or edited and it has the given tag or is in the given project, automatically applies the given priority/project/tag changes. This is the general "if a task has X, set Y" rule — use it for requests like "if a task is tagged urgent, set its priority to 1" or "if a task is in the Work project, tag it work-review".`,
+      `Create an automation rule. Every automation is kind "rule" with a config of {trigger, conditions[], actions[]} (plus daysOfWeek/daysOffset for the schedule-based triggers).
+
+Triggers (config.trigger): event_created, event_updated, task_created, task_updated, task_saved (created OR updated), task_completed, note_created, schedule_weekly (fires on chosen days of the week — needs config.daysOfWeek: number[] with 0=Sun..6=Sat), date_relative (fires once a task's due_date is config.daysOffset days away — needs config.daysOffset: number).
+
+Conditions (config.conditions, an array ANDed together): each is {field, op, value?}. field is one of "title","project","tag","priority","location","body","source" (which fields make sense depends on the trigger — task triggers use title/project/tag/priority, event triggers use title/location, note_created uses title/body/source). op is one of "contains","not_contains","equals","gte","lte","is_set","is_not_set" (value is omitted for is_set/is_not_set).
+
+Actions (config.actions, an array, all run when conditions match):
+- {type: "create_task", title: string (supports {title} for the triggering item's title), dueOffsetDays?: number (signed — negative days before the trigger's anchor date, positive days after), project?: string, priority?: number, tag?: string}
+- {type: "update_item", setPriority?: number|null, setProject?: string|null, addTag?: string|null, setDueOffsetDays?: number|null} — only valid for task-based triggers (task_created/updated/saved/completed, date_relative); patches the triggering task itself.
+- {type: "send_notification", title: string, body: string (both support {title})} — sends a push notification; requires the user to have push enabled in Settings.
+- {type: "create_note", title: string, body: string, appendToDaily?: boolean} — appendToDaily appends to today's daily note instead of creating a new standalone one.
+
+Example — "every Monday create a Weekly review task": {trigger: "schedule_weekly", daysOfWeek: [1], conditions: [], actions: [{type: "create_task", title: "Weekly review", dueOffsetDays: 0}]}.
+Example — "if a task is tagged urgent, set its priority to 1": {trigger: "task_saved", conditions: [{field: "tag", op: "equals", value: "urgent"}], actions: [{type: "update_item", setPriority: 1}]}.`,
     input_schema: {
       type: "object",
       properties: {
         name: { type: "string", description: "Short human-readable label for this rule." },
-        kind: {
-          type: "string",
-          enum: ["recurring_task", "task_completed_followup", "event_prep_task", "due_soon_nudge", "conditional_update"],
-        },
         config: {
           type: "object",
-          description: "Shape depends on kind — see the tool description above.",
+          description: "{trigger, conditions, actions, daysOfWeek?, daysOffset?} — see the tool description above.",
         },
         enabled: { type: "boolean", description: "Default true." },
       },
-      required: ["name", "kind", "config"],
+      required: ["name", "config"],
     },
   },
   {
@@ -441,16 +439,17 @@ Rules:
         return { deleted: input.id };
       }
       case "list_automations": {
-        let q = supabase.from("automations").select("*").order("created_at", { ascending: false });
-        if (input.kind) q = q.eq("kind", input.kind);
-        const { data, error } = await q;
+        const { data, error } = await supabase
+          .from("automations")
+          .select("*")
+          .order("created_at", { ascending: false });
         if (error) throw new Error(error.message);
         return data;
       }
       case "create_automation": {
         const row = {
           name: input.name,
-          kind: input.kind,
+          kind: "rule",
           config: input.config ?? {},
           enabled: input.enabled ?? true,
         };

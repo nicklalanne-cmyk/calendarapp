@@ -64,19 +64,21 @@ Reads/writes the user's connected Google Calendar(s) directly.
 
 ## Automations
 
-Rules that run automatically inside Cadence (recurring tasks, follow-ups, prep
-tasks before events, due-soon nudges, and conditional tag/project → priority
-updates). Prefer creating one of these over doing a repeated action manually when
-the user describes an ongoing behavior they want.
+If/then rules that run automatically inside Cadence: a trigger, optional
+conditions (all must match), and one or more actions. Prefer creating one of
+these over doing a repeated action manually when the user describes an
+ongoing behavior they want.
 
 - \`GET /api/skill/v1/automations\` — list all automations.
-- \`POST /api/skill/v1/automations\` — create one. Body: \`{ name, kind, config, enabled? }\` where \`kind\` is one of \`recurring_task\` | \`task_completed_followup\` | \`event_prep_task\` | \`due_soon_nudge\` | \`conditional_update\`, and \`config\` matches that kind:
-  - \`recurring_task\`: \`{ title, daysOfWeek: number[] (0=Sun..6=Sat), project?, priority? }\`
-  - \`task_completed_followup\`: \`{ filter?, title, dueOffsetDays, project?, priority? }\`
-  - \`event_prep_task\`: \`{ title, hoursBefore, project?, priority? }\`
-  - \`due_soon_nudge\`: \`{ daysBefore }\`
-  - \`conditional_update\`: \`{ matchField: "tag"|"project", matchValue, setPriority?, setProject?, addTag? }\`
-- \`PATCH /api/skill/v1/automations/:id\` — update \`name\`/\`kind\`/\`config\`/\`enabled\`.
+- \`POST /api/skill/v1/automations\` — create one. Body: \`{ name, kind: "rule", config, enabled? }\`. \`config\` is \`{ trigger, conditions, actions, daysOfWeek?, daysOffset? }\`:
+  - \`trigger\`: one of \`event_created\`, \`event_updated\`, \`task_created\`, \`task_updated\`, \`task_saved\` (created OR updated), \`task_completed\`, \`note_created\`, \`schedule_weekly\` (needs \`daysOfWeek: number[]\`, 0=Sun..6=Sat), \`date_relative\` (fires once a task's due date is \`daysOffset\` days away).
+  - \`conditions\`: array of \`{ field, op, value? }\`, ANDed together. \`field\` is one of \`title\`, \`project\`, \`tag\`, \`priority\`, \`location\`, \`body\`, \`source\` (which apply depends on the trigger). \`op\` is one of \`contains\`, \`not_contains\`, \`equals\`, \`gte\`, \`lte\`, \`is_set\`, \`is_not_set\` (omit \`value\` for the last two).
+  - \`actions\`: array, all run when conditions match:
+    - \`{ type: "create_task", title (supports {title}), dueOffsetDays?, project?, priority?, tag? }\`
+    - \`{ type: "update_item", setPriority?, setProject?, addTag?, setDueOffsetDays? }\` — patches the triggering task; only valid for task-based triggers.
+    - \`{ type: "send_notification", title, body (both support {title}) }\` — requires the user to have push enabled in Settings.
+    - \`{ type: "create_note", title, body, appendToDaily? }\`
+- \`PATCH /api/skill/v1/automations/:id\` — update \`name\`/\`config\`/\`enabled\`.
 - \`DELETE /api/skill/v1/automations/:id\` — permanently deletes the automation.
 
 ## Conventions

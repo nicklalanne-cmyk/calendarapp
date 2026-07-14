@@ -1,39 +1,79 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Zap, Plus, Trash2, X, Repeat, CheckCircle2, CalendarPlus, BellRing, Tag } from "lucide-react";
+import { Zap, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
-import { DAY_NAMES, type Automation, type AutomationKind } from "@/lib/automations";
+import {
+  DAY_NAMES,
+  TRIGGER_LABEL,
+  TRIGGER_ENTITY_TABLE,
+  FIELDS_BY_TRIGGER,
+  type Automation,
+  type TriggerType,
+  type Condition,
+  type ConditionField,
+  type ConditionOp,
+  type Action,
+  type RuleConfig,
+} from "@/lib/automations";
 
-const KIND_META: Record<AutomationKind, { label: string; icon: React.ElementType; blurb: string }> = {
-  recurring_task: {
-    label: "Recurring task",
-    icon: Repeat,
-    blurb: "Create a task automatically on chosen days of the week.",
-  },
-  task_completed_followup: {
-    label: "Task completed → follow-up task",
-    icon: CheckCircle2,
-    blurb: "When you finish a task, automatically create a follow-up.",
-  },
-  event_prep_task: {
-    label: "Event created → prep task",
-    icon: CalendarPlus,
-    blurb: "When you add a calendar event, automatically create a prep task before it.",
-  },
-  due_soon_nudge: {
-    label: "Due-soon nudge",
-    icon: BellRing,
-    blurb: "Get a push notification a few days before a task's due date.",
-  },
-  conditional_update: {
-    label: "Tag/project → auto-update",
-    icon: Tag,
-    blurb: "Whenever a task has a specific tag or project, automatically set its priority, project, or add a tag.",
-  },
+const TRIGGERS = Object.keys(TRIGGER_LABEL) as TriggerType[];
+
+const FIELD_LABEL: Record<ConditionField, string> = {
+  title: "Title",
+  project: "Project",
+  tag: "Tag",
+  priority: "Priority",
+  location: "Location",
+  body: "Body",
+  source: "Source",
 };
+
+const OPS_BY_FIELD: Record<ConditionField, ConditionOp[]> = {
+  title: ["contains", "not_contains", "equals", "is_set", "is_not_set"],
+  project: ["equals", "contains", "is_set", "is_not_set"],
+  tag: ["equals", "contains", "is_set", "is_not_set"],
+  priority: ["equals", "gte", "lte"],
+  location: ["contains", "not_contains", "equals", "is_set", "is_not_set"],
+  body: ["contains", "not_contains", "is_set", "is_not_set"],
+  source: ["equals", "contains", "is_set", "is_not_set"],
+};
+
+const OP_LABEL: Record<ConditionOp, string> = {
+  contains: "contains",
+  not_contains: "doesn't contain",
+  equals: "is",
+  gte: "is at least",
+  lte: "is at most",
+  is_set: "is set",
+  is_not_set: "isn't set",
+};
+
+const ACTION_TYPE_LABEL: Record<Action["type"], string> = {
+  create_task: "Create a task",
+  update_item: "Update the triggering item",
+  send_notification: "Send a notification",
+  create_note: "Create a note",
+};
+
+function defaultAction(type: Action["type"]): Action {
+  if (type === "create_task") return { type, title: "{title}", dueOffsetDays: 0, project: null, priority: 0, tag: null };
+  if (type === "update_item") return { type, setPriority: null, setProject: null, addTag: null, setDueOffsetDays: null };
+  if (type === "send_notification") return { type, title: "{title}", body: "" };
+  return { type: "create_note", title: "{title}", body: "", appendToDaily: false };
+}
+
+function summarize(cfg: RuleConfig): string {
+  const trigger = TRIGGER_LABEL[cfg.trigger] ?? cfg.trigger;
+  const actionBits = (cfg.actions ?? []).map((a) => ACTION_TYPE_LABEL[a.type]);
+  const cond = (cfg.conditions ?? []).length;
+  const parts = [trigger];
+  if (cond > 0) parts.push(`${cond} condition${cond === 1 ? "" : "s"}`);
+  if (actionBits.length > 0) parts.push(`→ ${actionBits.join(", ")}`);
+  return parts.join(" · ");
+}
 
 export default function AutomationsView() {
   const supabase = createClient();
@@ -97,54 +137,47 @@ export default function AutomationsView() {
         <p className="text-sm text-txt3">Loading…</p>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-txt3">
-          No automations yet. Create rules for recurring tasks, follow-ups after you finish a task, prep tasks
-          before events, or reminders as a due date approaches.
+          No automations yet. Build an if/then rule: pick a trigger, add conditions to narrow it down, then choose
+          what should happen.
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {rows.map((a) => {
-            const meta = KIND_META[a.kind];
-            const Icon = meta.icon;
-            return (
-              <div
-                key={a.id}
-                className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3"
-              >
-                <Icon className="h-4 w-4 shrink-0 text-txt3" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-txt">{a.name}</div>
-                  <div className="truncate text-xs text-txt3">{meta.label}</div>
-                </div>
-                <button
-                  onClick={() => toggle(a)}
-                  className={clsx(
-                    "relative h-6 w-11 shrink-0 rounded-full transition",
-                    a.enabled ? "bg-accent" : "bg-surface2"
-                  )}
-                  title={a.enabled ? "Enabled" : "Disabled"}
-                >
-                  <span
-                    className={clsx(
-                      "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition",
-                      a.enabled ? "left-[22px]" : "left-0.5"
-                    )}
-                  />
-                </button>
-                <button
-                  onClick={() => setEditing(a)}
-                  className="rounded-md px-2 py-1 text-xs text-txt2 hover:bg-surface2"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => remove(a)}
-                  className="rounded-md p-1.5 text-txt3 hover:bg-danger/10 hover:text-danger"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+          {rows.map((a) => (
+            <div key={a.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
+              <Zap className="h-4 w-4 shrink-0 text-txt3" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-txt">{a.name}</div>
+                <div className="truncate text-xs text-txt3">{summarize(a.config)}</div>
               </div>
-            );
-          })}
+              <button
+                onClick={() => toggle(a)}
+                className={clsx(
+                  "relative h-6 w-11 shrink-0 rounded-full transition",
+                  a.enabled ? "bg-accent" : "bg-surface2"
+                )}
+                title={a.enabled ? "Enabled" : "Disabled"}
+              >
+                <span
+                  className={clsx(
+                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition",
+                    a.enabled ? "left-[22px]" : "left-0.5"
+                  )}
+                />
+              </button>
+              <button
+                onClick={() => setEditing(a)}
+                className="rounded-md px-2 py-1 text-xs text-txt2 hover:bg-surface2"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => remove(a)}
+                className="rounded-md p-1.5 text-txt3 hover:bg-danger/10 hover:text-danger"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -162,6 +195,10 @@ export default function AutomationsView() {
   );
 }
 
+const inputCls =
+  "w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
+const labelCls = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3";
+
 function AutomationModal({
   automation,
   onClose,
@@ -172,89 +209,68 @@ function AutomationModal({
   onSaved: () => void;
 }) {
   const supabase = createClient();
-  const [kind, setKind] = useState<AutomationKind>(automation?.kind ?? "recurring_task");
   const [name, setName] = useState(automation?.name ?? "");
   const [saving, setSaving] = useState(false);
 
-  // recurring_task
-  const rtCfg = automation?.kind === "recurring_task" ? (automation.config as { title?: string; daysOfWeek?: number[] }) : null;
-  const [rtTitle, setRtTitle] = useState(rtCfg?.title ?? "");
-  const [rtDays, setRtDays] = useState<number[]>(rtCfg?.daysOfWeek ?? [1, 2, 3, 4, 5]);
+  const cfg = automation?.config;
+  const [trigger, setTrigger] = useState<TriggerType>(cfg?.trigger ?? "task_created");
+  const [conditions, setConditions] = useState<Condition[]>(cfg?.conditions ?? []);
+  const [actions, setActions] = useState<Action[]>(cfg?.actions ?? [defaultAction("create_task")]);
+  const [daysOfWeek, setDaysOfWeek] = useState<number[]>(cfg?.daysOfWeek ?? [1, 2, 3, 4, 5]);
+  const [daysOffset, setDaysOffset] = useState<number>(cfg?.daysOffset ?? 1);
 
-  // task_completed_followup
-  const tcCfg =
-    automation?.kind === "task_completed_followup"
-      ? (automation.config as { filter?: string; title?: string; dueOffsetDays?: number })
-      : null;
-  const [tcFilter, setTcFilter] = useState(tcCfg?.filter ?? "");
-  const [tcTitle, setTcTitle] = useState(tcCfg?.title ?? "Follow up: {task}");
-  const [tcOffset, setTcOffset] = useState(tcCfg?.dueOffsetDays ?? 3);
+  const fields = FIELDS_BY_TRIGGER[trigger];
+  const canUpdateItem = !!TRIGGER_ENTITY_TABLE[trigger];
 
-  // event_prep_task
-  const epCfg =
-    automation?.kind === "event_prep_task"
-      ? (automation.config as { filter?: string; title?: string; hoursBefore?: number; when?: "before" | "after" })
-      : null;
-  const [epFilter, setEpFilter] = useState(epCfg?.filter ?? "");
-  const [epTitle, setEpTitle] = useState(epCfg?.title ?? "Prep for {event}");
-  const [epHours, setEpHours] = useState(epCfg?.hoursBefore ?? 24);
-  const [epWhen, setEpWhen] = useState<"before" | "after">(epCfg?.when ?? "before");
-
-  // due_soon_nudge
-  const dsCfg = automation?.kind === "due_soon_nudge" ? (automation.config as { daysBefore?: number }) : null;
-  const [dsDays, setDsDays] = useState(dsCfg?.daysBefore ?? 1);
-
-  // conditional_update
-  const cuCfg =
-    automation?.kind === "conditional_update"
-      ? (automation.config as {
-          matchField?: "tag" | "project";
-          matchValue?: string;
-          setPriority?: number | null;
-          setProject?: string | null;
-          addTag?: string | null;
-        })
-      : null;
-  const [cuMatchField, setCuMatchField] = useState<"tag" | "project">(cuCfg?.matchField ?? "tag");
-  const [cuMatchValue, setCuMatchValue] = useState(cuCfg?.matchValue ?? "");
-  const [cuSetPriority, setCuSetPriority] = useState<string>(
-    cuCfg?.setPriority != null ? String(cuCfg.setPriority) : ""
-  );
-  const [cuSetProject, setCuSetProject] = useState(cuCfg?.setProject ?? "");
-  const [cuAddTag, setCuAddTag] = useState(cuCfg?.addTag ?? "");
+  // If switching to a trigger that doesn't support update_item, drop any such
+  // actions rather than silently saving something that can never fire.
+  const changeTrigger = (t: TriggerType) => {
+    setTrigger(t);
+    if (!TRIGGER_ENTITY_TABLE[t]) {
+      setActions((cur) => cur.filter((a) => a.type !== "update_item"));
+    }
+    // Reset conditions whose field isn't offered for the new trigger.
+    setConditions((cur) => cur.filter((c) => FIELDS_BY_TRIGGER[t].includes(c.field)));
+  };
 
   const toggleDay = (d: number) =>
-    setRtDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()));
+    setDaysOfWeek((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()));
+
+  const addCondition = () => {
+    if (fields.length === 0) return;
+    setConditions((cur) => [...cur, { field: fields[0], op: OPS_BY_FIELD[fields[0]][0], value: "" }]);
+  };
+  const updateCondition = (i: number, patch: Partial<Condition>) =>
+    setConditions((cur) => cur.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  const removeCondition = (i: number) => setConditions((cur) => cur.filter((_, idx) => idx !== i));
+
+  const addAction = () => setActions((cur) => [...cur, defaultAction("create_task")]);
+  const updateAction = (i: number, patch: Partial<Action>) =>
+    setActions((cur) => cur.map((a, idx) => (idx === i ? ({ ...a, ...patch } as Action) : a)));
+  const removeAction = (i: number) => setActions((cur) => cur.filter((_, idx) => idx !== i));
 
   const save = async () => {
     if (!name.trim()) return toast("Give this automation a name", "error");
-    let config: Record<string, unknown> = {};
-    if (kind === "recurring_task") {
-      if (!rtTitle.trim()) return toast("Task title is required", "error");
-      config = { title: rtTitle, daysOfWeek: rtDays };
-    } else if (kind === "task_completed_followup") {
-      if (!tcTitle.trim()) return toast("Follow-up title is required", "error");
-      config = { filter: tcFilter || undefined, title: tcTitle, dueOffsetDays: tcOffset };
-    } else if (kind === "event_prep_task") {
-      if (!epTitle.trim()) return toast("Prep task title is required", "error");
-      config = { filter: epFilter || undefined, title: epTitle, hoursBefore: epHours, when: epWhen };
-    } else if (kind === "due_soon_nudge") {
-      config = { daysBefore: dsDays };
-    } else {
-      if (!cuMatchValue.trim()) return toast(`Enter the ${cuMatchField} to match`, "error");
-      if (!cuSetPriority && !cuSetProject.trim() && !cuAddTag.trim())
-        return toast("Set at least one action (priority, project, or tag)", "error");
-      config = {
-        matchField: cuMatchField,
-        matchValue: cuMatchValue.trim(),
-        setPriority: cuSetPriority ? Number(cuSetPriority) : null,
-        setProject: cuSetProject.trim() || null,
-        addTag: cuAddTag.trim() || null,
-      };
+    if (trigger === "schedule_weekly" && daysOfWeek.length === 0) {
+      return toast("Pick at least one day of the week", "error");
+    }
+    if (actions.length === 0) return toast("Add at least one action", "error");
+    for (const a of actions) {
+      if ((a.type === "create_task" || a.type === "send_notification" || a.type === "create_note") && !a.title?.trim()) {
+        return toast("Every action needs a title", "error");
+      }
     }
 
+    const config: RuleConfig = {
+      trigger,
+      conditions,
+      actions,
+      ...(trigger === "schedule_weekly" ? { daysOfWeek } : {}),
+      ...(trigger === "date_relative" ? { daysOffset } : {}),
+    };
+
     setSaving(true);
-    const payload = { name, kind, config, enabled: true };
+    const payload = { name, kind: "rule" as const, config, enabled: true };
     const { error } = automation
       ? await supabase.from("automations").update(payload).eq("id", automation.id)
       : await supabase.from("automations").insert(payload);
@@ -276,201 +292,142 @@ function AutomationModal({
           </button>
         </div>
 
-        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Name</label>
+        <label className={labelCls}>Name</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Weekly review"
-          className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          className={clsx(inputCls, "mb-3")}
         />
 
-        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Trigger & action</label>
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as AutomationKind)}
-          className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-        >
-          {(Object.keys(KIND_META) as AutomationKind[]).map((k) => (
-            <option key={k} value={k}>
-              {KIND_META[k].label}
-            </option>
-          ))}
-        </select>
-        <p className="mb-4 text-xs text-txt3">{KIND_META[kind].blurb}</p>
+        {/* ---- IF ---- */}
+        <div className="mb-4 rounded-xl border border-border p-3">
+          <div className="mb-2 text-xs font-semibold text-accent">IF</div>
+          <label className={labelCls}>Trigger</label>
+          <select
+            value={trigger}
+            onChange={(e) => changeTrigger(e.target.value as TriggerType)}
+            className={clsx(inputCls, "mb-3")}
+          >
+            {TRIGGERS.map((t) => (
+              <option key={t} value={t}>
+                {TRIGGER_LABEL[t]}
+              </option>
+            ))}
+          </select>
 
-        {kind === "recurring_task" && (
-          <>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Task title</label>
-            <input
-              value={rtTitle}
-              onChange={(e) => setRtTitle(e.target.value)}
-              placeholder="e.g. Weekly review"
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Days</label>
-            <div className="mb-3 flex gap-1">
-              {DAY_NAMES.map((d, i) => (
-                <button
-                  key={d}
-                  onClick={() => toggleDay(i)}
-                  className={clsx(
-                    "h-8 flex-1 rounded-lg text-xs font-medium",
-                    rtDays.includes(i) ? "bg-accent text-white" : "bg-surface2 text-txt2"
-                  )}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+          {trigger === "schedule_weekly" && (
+            <>
+              <label className={labelCls}>Days</label>
+              <div className="mb-3 flex gap-1">
+                {DAY_NAMES.map((d, i) => (
+                  <button
+                    key={d}
+                    onClick={() => toggleDay(i)}
+                    className={clsx(
+                      "h-8 flex-1 rounded-lg text-xs font-medium",
+                      daysOfWeek.includes(i) ? "bg-accent text-white" : "bg-surface2 text-txt2"
+                    )}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
-        {kind === "task_completed_followup" && (
-          <>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
-              Only when task title contains (optional)
-            </label>
-            <input
-              value={tcFilter}
-              onChange={(e) => setTcFilter(e.target.value)}
-              placeholder="Leave blank to match any task"
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
-              Follow-up task title
-            </label>
-            <input
-              value={tcTitle}
-              onChange={(e) => setTcTitle(e.target.value)}
-              placeholder="Follow up: {task}"
-              className="mb-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <p className="mb-3 text-[11px] text-txt3">{"Use {task} for the completed task's title."}</p>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
-              Due, days after completion
-            </label>
-            <input
-              type="number"
-              min={0}
-              value={tcOffset}
-              onChange={(e) => setTcOffset(Number(e.target.value) || 0)}
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-          </>
-        )}
-
-        {kind === "event_prep_task" && (
-          <>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
-              Only when event title contains (optional)
-            </label>
-            <input
-              value={epFilter}
-              onChange={(e) => setEpFilter(e.target.value)}
-              placeholder="e.g. Showing — leave blank to match any event"
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Prep task title</label>
-            <input
-              value={epTitle}
-              onChange={(e) => setEpTitle(e.target.value)}
-              placeholder="Prep for {event}"
-              className="mb-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <p className="mb-3 text-[11px] text-txt3">{"Use {event} for the new event's title."}</p>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Due, hours</label>
-            <div className="mb-3 flex gap-2">
+          {trigger === "date_relative" && (
+            <>
+              <label className={labelCls}>Days before the due date</label>
               <input
                 type="number"
-                min={0}
-                value={epHours}
-                onChange={(e) => setEpHours(Math.max(0, Number(e.target.value) || 0))}
-                className="w-24 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                value={daysOffset}
+                onChange={(e) => setDaysOffset(Number(e.target.value) || 0)}
+                className={clsx(inputCls, "mb-3")}
               />
-              <select
-                value={epWhen}
-                onChange={(e) => setEpWhen(e.target.value as "before" | "after")}
-                className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-              >
-                <option value="before">before the event</option>
-                <option value="after">after the event</option>
-              </select>
-            </div>
-          </>
-        )}
+            </>
+          )}
 
-        {kind === "due_soon_nudge" && (
-          <>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
-              Days before the due date
-            </label>
-            <input
-              type="number"
-              min={0}
-              value={dsDays}
-              onChange={(e) => setDsDays(Number(e.target.value) || 0)}
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <p className="mb-3 text-[11px] text-txt3">
-              Requires push notifications to be enabled in Settings — sent once per task, around 7am your local time.
-            </p>
-          </>
-        )}
-
-        {kind === "conditional_update" && (
-          <>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
-              When a task's
-            </label>
-            <div className="mb-3 flex gap-2">
-              <select
-                value={cuMatchField}
-                onChange={(e) => setCuMatchField(e.target.value as "tag" | "project")}
-                className="w-28 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          {fields.length > 0 && (
+            <>
+              <label className={labelCls}>Conditions (all must match, optional)</label>
+              <div className="mb-2 flex flex-col gap-2">
+                {conditions.map((c, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <select
+                      value={c.field}
+                      onChange={(e) => {
+                        const f = e.target.value as ConditionField;
+                        updateCondition(i, { field: f, op: OPS_BY_FIELD[f][0] });
+                      }}
+                      className="rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+                    >
+                      {fields.map((f) => (
+                        <option key={f} value={f}>
+                          {FIELD_LABEL[f]}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={c.op}
+                      onChange={(e) => updateCondition(i, { op: e.target.value as ConditionOp })}
+                      className="rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+                    >
+                      {OPS_BY_FIELD[c.field].map((op) => (
+                        <option key={op} value={op}>
+                          {OP_LABEL[op]}
+                        </option>
+                      ))}
+                    </select>
+                    {c.op !== "is_set" && c.op !== "is_not_set" && (
+                      <input
+                        value={c.value ?? ""}
+                        onChange={(e) => updateCondition(i, { value: e.target.value })}
+                        placeholder="value"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+                      />
+                    )}
+                    <button
+                      onClick={() => removeCondition(i)}
+                      className="shrink-0 rounded-md p-1.5 text-txt3 hover:bg-danger/10 hover:text-danger"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={addCondition}
+                className="mb-1 flex items-center gap-1 text-xs font-medium text-accent hover:text-accentSoft"
               >
-                <option value="tag">tag</option>
-                <option value="project">project</option>
-              </select>
-              <input
-                value={cuMatchValue}
-                onChange={(e) => setCuMatchValue(e.target.value)}
-                placeholder={cuMatchField === "tag" ? "e.g. urgent" : "e.g. Work"}
-                className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                <Plus className="h-3.5 w-3.5" /> Add condition
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* ---- THEN ---- */}
+        <div className="mb-4 rounded-xl border border-border p-3">
+          <div className="mb-2 text-xs font-semibold text-accent">THEN</div>
+          <div className="flex flex-col gap-3">
+            {actions.map((a, i) => (
+              <ActionEditor
+                key={i}
+                action={a}
+                canUpdateItem={canUpdateItem}
+                onChange={(patch) => updateAction(i, patch)}
+                onTypeChange={(type) => updateAction(i, defaultAction(type))}
+                onRemove={() => removeAction(i)}
               />
-            </div>
-            <p className="mb-3 text-[11px] text-txt3">is set, apply the following (leave any blank to skip it):</p>
-
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Set priority</label>
-            <select
-              value={cuSetPriority}
-              onChange={(e) => setCuSetPriority(e.target.value)}
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            >
-              <option value="">Don't change</option>
-              <option value="0">None</option>
-              <option value="1">P1</option>
-              <option value="2">P2</option>
-              <option value="3">P3</option>
-              <option value="4">P4</option>
-            </select>
-
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Set project</label>
-            <input
-              value={cuSetProject}
-              onChange={(e) => setCuSetProject(e.target.value)}
-              placeholder="Leave blank to not change"
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Add tag</label>
-            <input
-              value={cuAddTag}
-              onChange={(e) => setCuAddTag(e.target.value)}
-              placeholder="Leave blank to not add a tag"
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-          </>
-        )}
+            ))}
+          </div>
+          <button
+            onClick={addAction}
+            className="mt-2 flex items-center gap-1 text-xs font-medium text-accent hover:text-accentSoft"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add action
+          </button>
+        </div>
 
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm text-txt2 hover:bg-surface2">
@@ -485,6 +442,172 @@ function AutomationModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ActionEditor({
+  action,
+  canUpdateItem,
+  onChange,
+  onTypeChange,
+  onRemove,
+}: {
+  action: Action;
+  canUpdateItem: boolean;
+  onChange: (patch: Partial<Action>) => void;
+  onTypeChange: (type: Action["type"]) => void;
+  onRemove: () => void;
+}) {
+  const types: Action["type"][] = ["create_task", "send_notification", "create_note"];
+  if (canUpdateItem) types.splice(1, 0, "update_item");
+
+  return (
+    <div className="rounded-lg border border-border bg-bg/50 p-2.5">
+      <div className="mb-2 flex items-center gap-1.5">
+        <select
+          value={action.type}
+          onChange={(e) => onTypeChange(e.target.value as Action["type"])}
+          className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+        >
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {ACTION_TYPE_LABEL[t]}
+            </option>
+          ))}
+        </select>
+        <button onClick={onRemove} className="shrink-0 rounded-md p-1.5 text-txt3 hover:bg-danger/10 hover:text-danger">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {action.type === "create_task" && (
+        <div className="flex flex-col gap-1.5">
+          <input
+            value={action.title}
+            onChange={(e) => onChange({ title: e.target.value })}
+            placeholder="Task title — use {title} for the trigger's title"
+            className="rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+          />
+          <div className="flex gap-1.5">
+            <input
+              type="number"
+              value={action.dueOffsetDays ?? 0}
+              onChange={(e) => onChange({ dueOffsetDays: Number(e.target.value) || 0 })}
+              placeholder="Due offset (days)"
+              className="w-32 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            />
+            <input
+              value={action.project ?? ""}
+              onChange={(e) => onChange({ project: e.target.value || null })}
+              placeholder="Project (optional)"
+              className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <select
+              value={String(action.priority ?? 0)}
+              onChange={(e) => onChange({ priority: Number(e.target.value) })}
+              className="w-24 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            >
+              <option value="0">No priority</option>
+              <option value="1">P1</option>
+              <option value="2">P2</option>
+              <option value="3">P3</option>
+              <option value="4">P4</option>
+            </select>
+            <input
+              value={action.tag ?? ""}
+              onChange={(e) => onChange({ tag: e.target.value || null })}
+              placeholder="Tag (optional)"
+              className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            />
+          </div>
+          <p className="text-[10px] text-txt3">Due offset: negative = before, positive = after the trigger's anchor date.</p>
+        </div>
+      )}
+
+      {action.type === "update_item" && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex gap-1.5">
+            <select
+              value={action.setPriority != null ? String(action.setPriority) : ""}
+              onChange={(e) => onChange({ setPriority: e.target.value ? Number(e.target.value) : null })}
+              className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            >
+              <option value="">Don&apos;t change priority</option>
+              <option value="0">None</option>
+              <option value="1">P1</option>
+              <option value="2">P2</option>
+              <option value="3">P3</option>
+              <option value="4">P4</option>
+            </select>
+            <input
+              value={action.setProject ?? ""}
+              onChange={(e) => onChange({ setProject: e.target.value || null })}
+              placeholder="Set project (optional)"
+              className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <input
+              value={action.addTag ?? ""}
+              onChange={(e) => onChange({ addTag: e.target.value || null })}
+              placeholder="Add tag (optional)"
+              className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            />
+            <input
+              type="number"
+              value={action.setDueOffsetDays ?? ""}
+              onChange={(e) => onChange({ setDueOffsetDays: e.target.value ? Number(e.target.value) : null })}
+              placeholder="Set due, days from now"
+              className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+            />
+          </div>
+        </div>
+      )}
+
+      {action.type === "send_notification" && (
+        <div className="flex flex-col gap-1.5">
+          <input
+            value={action.title}
+            onChange={(e) => onChange({ title: e.target.value })}
+            placeholder="Notification title"
+            className="rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+          />
+          <input
+            value={action.body}
+            onChange={(e) => onChange({ body: e.target.value })}
+            placeholder="Body — use {title} for the trigger's title"
+            className="rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+          />
+        </div>
+      )}
+
+      {action.type === "create_note" && (
+        <div className="flex flex-col gap-1.5">
+          <input
+            value={action.title}
+            onChange={(e) => onChange({ title: e.target.value })}
+            placeholder="Note title"
+            className="rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+          />
+          <input
+            value={action.body}
+            onChange={(e) => onChange({ body: e.target.value })}
+            placeholder="Note body (optional)"
+            className="rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+          />
+          <label className="flex items-center gap-1.5 text-xs text-txt2">
+            <input
+              type="checkbox"
+              checked={!!action.appendToDaily}
+              onChange={(e) => onChange({ appendToDaily: e.target.checked })}
+            />
+            Append to today&apos;s daily note instead of creating a new one
+          </label>
+        </div>
+      )}
     </div>
   );
 }

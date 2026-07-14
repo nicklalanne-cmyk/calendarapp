@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticateApiRequest } from "@/lib/apiAuth";
 
-// kind determines the shape of `config` — see src/lib/automations.ts for the
-// full per-kind config types (recurring_task, task_completed_followup,
-// event_prep_task, due_soon_nudge, conditional_update).
+// `kind` is always "rule" — automations are generic if/then rules now. See
+// src/lib/automations.ts for the RuleConfig shape (trigger, conditions,
+// actions, plus daysOfWeek/daysOffset for schedule/date-relative triggers).
 
 export async function GET(req: NextRequest) {
   const auth = await authenticateApiRequest(req);
