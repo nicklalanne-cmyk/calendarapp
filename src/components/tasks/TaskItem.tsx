@@ -81,7 +81,7 @@ export default function TaskItem({
         onDragStart={(e) => {
           e.dataTransfer.setData(
             "application/cadence-task",
-            JSON.stringify({ id: task.id, title: task.title })
+            JSON.stringify({ id: task.id, title: task.title, estimate_minutes: task.estimate_minutes })
           );
           e.dataTransfer.effectAllowed = "copy";
         }}

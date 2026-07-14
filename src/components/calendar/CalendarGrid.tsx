@@ -10,7 +10,7 @@ import { CheckSquare } from "lucide-react";
 const HOUR_H = 48;
 const GUTTER = 56;
 
-export type TaskDropPayload = { id: string; title: string };
+export type TaskDropPayload = { id: string; title: string; estimate_minutes?: number | null };
 
 const snap = (m: number) => Math.round(m / 15) * 15;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -295,7 +295,13 @@ function DayColumn({
           try {
             const p = JSON.parse(raw) as TaskDropPayload;
             const sm = snap(yToMin(relY(e.clientY)));
-            onDropTask(p, dateAt(sm), dateAt(sm + 60));
+            // Fill the block with the task's own estimate (snapped to 15min,
+            // minimum 15) instead of always dropping a flat 60min block —
+            // a 2hr task dragged at 11am should land at 11am-1pm, not 11-12.
+            const estimate = p.estimate_minutes;
+            const durMin = estimate && estimate > 0 ? Math.max(15, snap(estimate)) : 60;
+            const em = Math.min(sm + durMin, 24 * 60);
+            onDropTask(p, dateAt(sm), dateAt(em));
           } catch {
             /* ignore */
           }
