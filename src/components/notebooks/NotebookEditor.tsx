@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Plus, Trash2, Copy, Loader2, FileUp, ChevronLeft, ChevronRight,
-  Menu, X, Users, Download,
+  Menu, X, Users, Download, Maximize2, Minimize2,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
@@ -34,8 +34,15 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
   const [exporting, setExporting] = useState<string | null>(null);
   const [background, setBackground] = useState<HTMLCanvasElement | null>(null);
   const [isOwner, setIsOwner] = useState(true);
+  // Same "escape everything, including AppShell's bottom nav" trick as
+  // InkCanvas's full-screen toggle — a fixed inset-0 overlay at a z-index
+  // above the mobile bottom nav, plus a real Fullscreen API request where
+  // supported, so nothing but the editor itself is left to catch a stray
+  // arm/palm while writing.
+  const [full, setFull] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const pdfDocCache = useRef<Map<string, Awaited<ReturnType<typeof loadPdfDocument>>>>(new Map());
   const bgCache = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const imageUrlCache = useRef<Map<string, string>>(new Map());
@@ -346,6 +353,42 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
     if (next) setActiveId(next.id);
   };
 
+  const toggleFull = async () => {
+    const next = !full;
+    setFull(next);
+    try {
+      if (next) {
+        await rootRef.current?.requestFullscreen?.();
+      } else if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Refused or unsupported — the fixed-overlay part still works, so we
+      // just carry on without the browser chrome hidden too.
+    }
+  };
+
+  // Leaving fullscreen via the system gesture / Esc must un-expand us too.
+  useEffect(() => {
+    const onFs = () => {
+      if (!document.fullscreenElement && full) setFull(false);
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, [full]);
+
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setFull(false);
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full]);
+
   if (loading || !notebook) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -355,7 +398,13 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
   }
 
   return (
-    <div className="flex h-full min-w-0">
+    <div
+      ref={rootRef}
+      className={clsx(
+        "flex min-w-0 bg-bg",
+        full ? "fixed inset-0 z-[80] h-[100dvh]" : "h-full"
+      )}
+    >
       {/* page rail */}
       <aside
         className={clsx(
@@ -497,6 +546,13 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
           >
             {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             <span className="hidden sm:inline">{exporting ?? "Export PDF"}</span>
+          </button>
+          <button
+            onClick={toggleFull}
+            title={full ? "Exit full screen (Esc)" : "Full screen — hides the bottom nav bar"}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-txt2 hover:bg-surface2"
+          >
+            {full ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           </button>
         </header>
 
