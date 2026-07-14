@@ -191,7 +191,11 @@ function AutomationModal({
   const [tcOffset, setTcOffset] = useState(tcCfg?.dueOffsetDays ?? 3);
 
   // event_prep_task
-  const epCfg = automation?.kind === "event_prep_task" ? (automation.config as { title?: string; hoursBefore?: number }) : null;
+  const epCfg =
+    automation?.kind === "event_prep_task"
+      ? (automation.config as { filter?: string; title?: string; hoursBefore?: number })
+      : null;
+  const [epFilter, setEpFilter] = useState(epCfg?.filter ?? "");
   const [epTitle, setEpTitle] = useState(epCfg?.title ?? "Prep for {event}");
   const [epHours, setEpHours] = useState(epCfg?.hoursBefore ?? 24);
 
@@ -232,7 +236,7 @@ function AutomationModal({
       config = { filter: tcFilter || undefined, title: tcTitle, dueOffsetDays: tcOffset };
     } else if (kind === "event_prep_task") {
       if (!epTitle.trim()) return toast("Prep task title is required", "error");
-      config = { title: epTitle, hoursBefore: epHours };
+      config = { filter: epFilter || undefined, title: epTitle, hoursBefore: epHours };
     } else if (kind === "due_soon_nudge") {
       config = { daysBefore: dsDays };
     } else {
@@ -356,6 +360,15 @@ function AutomationModal({
 
         {kind === "event_prep_task" && (
           <>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">
+              Only when event title contains (optional)
+            </label>
+            <input
+              value={epFilter}
+              onChange={(e) => setEpFilter(e.target.value)}
+              placeholder="e.g. Showing — leave blank to match any event"
+              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            />
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Prep task title</label>
             <input
               value={epTitle}
@@ -369,7 +382,7 @@ function AutomationModal({
               type="number"
               min={0}
               value={epHours}
-              onChange={(e) => setEpHours(Number(e.target.value) || 0)}
+              onChange={(e) => setEpHours(Math.max(0, Number(e.target.value) || 0))}
               className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
             />
           </>

@@ -26,6 +26,8 @@ export type TaskCompletedFollowupConfig = {
 };
 
 export type EventPrepTaskConfig = {
+  /** Case-insensitive keyword the new event's title must contain; empty/undefined = any event */
+  filter?: string;
   /** Supports {event} as a placeholder for the event's title */
   title: string;
   hoursBefore: number;
@@ -112,6 +114,7 @@ export async function runEventCreatedAutomations(supabase: SupabaseClient, event
   const rules = await enabledAutomations(supabase, "event_prep_task");
   for (const r of rules) {
     const cfg = r.config as EventPrepTaskConfig;
+    if (cfg.filter && !eventTitle.toLowerCase().includes(cfg.filter.toLowerCase())) continue;
     const due = new Date(eventStart.getTime() - (cfg.hoursBefore ?? 0) * 3600_000);
     await supabase.from("tasks").insert({
       title: fillTemplate(cfg.title || "Prep for {event}", "event", eventTitle),
