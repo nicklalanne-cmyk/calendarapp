@@ -193,11 +193,12 @@ function AutomationModal({
   // event_prep_task
   const epCfg =
     automation?.kind === "event_prep_task"
-      ? (automation.config as { filter?: string; title?: string; hoursBefore?: number })
+      ? (automation.config as { filter?: string; title?: string; hoursBefore?: number; when?: "before" | "after" })
       : null;
   const [epFilter, setEpFilter] = useState(epCfg?.filter ?? "");
   const [epTitle, setEpTitle] = useState(epCfg?.title ?? "Prep for {event}");
   const [epHours, setEpHours] = useState(epCfg?.hoursBefore ?? 24);
+  const [epWhen, setEpWhen] = useState<"before" | "after">(epCfg?.when ?? "before");
 
   // due_soon_nudge
   const dsCfg = automation?.kind === "due_soon_nudge" ? (automation.config as { daysBefore?: number }) : null;
@@ -236,7 +237,7 @@ function AutomationModal({
       config = { filter: tcFilter || undefined, title: tcTitle, dueOffsetDays: tcOffset };
     } else if (kind === "event_prep_task") {
       if (!epTitle.trim()) return toast("Prep task title is required", "error");
-      config = { filter: epFilter || undefined, title: epTitle, hoursBefore: epHours };
+      config = { filter: epFilter || undefined, title: epTitle, hoursBefore: epHours, when: epWhen };
     } else if (kind === "due_soon_nudge") {
       config = { daysBefore: dsDays };
     } else {
@@ -377,14 +378,24 @@ function AutomationModal({
               className="mb-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
             />
             <p className="mb-3 text-[11px] text-txt3">{"Use {event} for the new event's title."}</p>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Hours before the event</label>
-            <input
-              type="number"
-              min={0}
-              value={epHours}
-              onChange={(e) => setEpHours(Math.max(0, Number(e.target.value) || 0))}
-              className="mb-3 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-            />
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-txt3">Due, hours</label>
+            <div className="mb-3 flex gap-2">
+              <input
+                type="number"
+                min={0}
+                value={epHours}
+                onChange={(e) => setEpHours(Math.max(0, Number(e.target.value) || 0))}
+                className="w-24 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+              <select
+                value={epWhen}
+                onChange={(e) => setEpWhen(e.target.value as "before" | "after")}
+                className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              >
+                <option value="before">before the event</option>
+                <option value="after">after the event</option>
+              </select>
+            </div>
           </>
         )}
 

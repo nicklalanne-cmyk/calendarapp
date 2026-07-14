@@ -31,6 +31,11 @@ export type EventPrepTaskConfig = {
   /** Supports {event} as a placeholder for the event's title */
   title: string;
   hoursBefore: number;
+  /** "before" (default) schedules the task ahead of the event's start;
+   * "after" schedules it that many hours past it — e.g. a same-day
+   * post-showing follow-up. Older saved rules have no `when` at all and
+   * should keep behaving like "before" did. */
+  when?: "before" | "after";
   project?: string | null;
   priority?: number;
 };
@@ -115,7 +120,8 @@ export async function runEventCreatedAutomations(supabase: SupabaseClient, event
   for (const r of rules) {
     const cfg = r.config as EventPrepTaskConfig;
     if (cfg.filter && !eventTitle.toLowerCase().includes(cfg.filter.toLowerCase())) continue;
-    const due = new Date(eventStart.getTime() - (cfg.hoursBefore ?? 0) * 3600_000);
+    const sign = cfg.when === "after" ? 1 : -1;
+    const due = new Date(eventStart.getTime() + sign * (cfg.hoursBefore ?? 0) * 3600_000);
     await supabase.from("tasks").insert({
       title: fillTemplate(cfg.title || "Prep for {event}", "event", eventTitle),
       due_date: toISODate(due),
