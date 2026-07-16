@@ -49,6 +49,7 @@ export default function TaskModal({
   task,
   mode,
   projects,
+  allTags,
   currentUserId,
   defaultDueDate,
   onClose,
@@ -63,6 +64,8 @@ export default function TaskModal({
   task: Task | null;
   mode: "create" | "edit";
   projects: string[];
+  /** Existing tags across the user's tasks, for the Tags field's autocomplete. */
+  allTags?: string[];
   /** current user's id, used to decide whether they own this task and can toggle sharing */
   currentUserId?: string | null;
   /** Pre-fills the due date for a brand-new task (e.g. the day being viewed in Agenda). */
@@ -453,11 +456,17 @@ export default function TaskModal({
             <div>
               <label className={label}>Tags (comma-separated)</label>
               <input
+                list="cadence-tags"
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
                 placeholder="design, urgent"
                 className={field}
               />
+              <datalist id="cadence-tags">
+                {(allTags ?? []).map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
           </div>
 

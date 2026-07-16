@@ -173,6 +173,11 @@ export default function AutomationsView() {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-txt">{a.name}</div>
                 <div className="truncate text-xs text-txt3">{summarize(a.config)}</div>
+                <div className="truncate text-[11px] text-txt3">
+                  {a.last_run_on
+                    ? `Last ran ${new Date(`${a.last_run_on}T00:00:00`).toLocaleDateString()}`
+                    : "Never run yet"}
+                </div>
               </div>
               <button
                 onClick={() => toggle(a)}

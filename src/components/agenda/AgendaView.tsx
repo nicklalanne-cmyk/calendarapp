@@ -222,6 +222,11 @@ export default function AgendaView() {
     [tasks]
   );
 
+  const tagNames = useMemo(
+    () => Array.from(new Set(tasks.flatMap((t) => t.tags ?? []).filter(Boolean))).sort(),
+    [tasks]
+  );
+
   const createTask = async (draftIn: TaskDraft) => {
     const { data, error } = await supabase
       .from("tasks")
@@ -1366,6 +1371,7 @@ export default function AgendaView() {
           task={null}
           mode="create"
           projects={projectNames}
+          allTags={tagNames}
           currentUserId={currentUserId}
           defaultDueDate={toISODate(anchor)}
           onSave={createTask}
@@ -1389,6 +1395,7 @@ export default function AgendaView() {
           task={editingTask}
           mode="edit"
           projects={projectNames}
+          allTags={tagNames}
           currentUserId={currentUserId}
           subtasks={tasks.filter((t) => t.parent_id === editingTask.id)}
           onAddSubtask={(title) => addSubtaskToTask(editingTask, title)}

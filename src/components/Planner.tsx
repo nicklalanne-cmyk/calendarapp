@@ -208,6 +208,11 @@ export default function Planner() {
     [tasks]
   );
 
+  const tagNames = useMemo(
+    () => Array.from(new Set(tasks.flatMap((t) => t.tags ?? []).filter(Boolean))).sort(),
+    [tasks]
+  );
+
   const visibleEvents = useMemo(
     () => events.filter((e) => !hidden.has(e.calendarId)),
     [events, hidden]
@@ -990,6 +995,7 @@ export default function Planner() {
           task={editing}
           mode="edit"
           projects={projectNames}
+          allTags={tagNames}
           currentUserId={currentUserId}
           onSave={(patch) => updateTask(editing, patch)}
           onDelete={() => {
@@ -1014,6 +1020,7 @@ export default function Planner() {
           task={null}
           mode="create"
           projects={projectNames}
+          allTags={tagNames}
           currentUserId={currentUserId}
           onSave={createTask}
           onClose={() => setCreating(false)}
