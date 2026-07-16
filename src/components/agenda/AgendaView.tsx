@@ -346,14 +346,19 @@ export default function AgendaView() {
       attendees: ev.attendees,
       meetingLink: ev.meetingLink,
       recurring: ev.recurring,
+      allDay: ev.allDay,
     });
 
   const saveEvent = async (d: EventDraft) => {
     const headers = { "Content-Type": "application/json" };
+    // All-day events are sent as plain dates, not datetimes — using
+    // toISOString() here would convert through UTC and could shift the date
+    // by a day depending on the browser's timezone offset.
     const body = JSON.stringify({
       title: d.title,
-      start: d.start.toISOString(),
-      end: d.end.toISOString(),
+      start: d.allDay ? format(d.start, "yyyy-MM-dd") : d.start.toISOString(),
+      end: d.allDay ? format(d.end, "yyyy-MM-dd") : d.end.toISOString(),
+      allDay: d.allDay ?? false,
       location: d.location ?? null,
       description: d.description ?? null,
       recurrence: d.recurrence ?? null,

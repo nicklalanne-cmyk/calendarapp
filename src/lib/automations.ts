@@ -222,69 +222,83 @@ export async function runActions(
   ctx: RuleContext,
   sendPush?: SendPushFn
 ) {
+  // Each action runs in its own try/catch — one action throwing (a bad
+  // project name, a constraint violation, a push failure) must not stop the
+  // rest of this rule's actions, or any other rule, from running. Failures
+  // are logged server-side rather than surfaced to the user, since these run
+  // as a side effect of an unrelated save.
   for (const a of actions ?? []) {
-    if (a.type === "create_task") {
-      const due = new Date(ctx.anchorDate);
-      due.setDate(due.getDate() + (a.dueOffsetDays ?? 0));
-      await supabase.from("tasks").insert({
-        title: fillTemplate(a.title || "{title}", ctx.title),
-        due_date: toISODate(due),
-        due_kind: "day",
-        priority: a.priority ?? 0,
-        project: a.project ?? null,
-        tags: a.tag ? [a.tag] : undefined,
-        shared: false,
-      });
-    } else if (a.type === "update_item") {
-      if (!ctx.entity) continue; // no concrete row to patch (e.g. event triggers)
-      const patch: Record<string, unknown> = {};
-      if (a.setPriority != null) patch.priority = a.setPriority;
-      if (a.setProject) patch.project = a.setProject;
-      if (a.setDueOffsetDays != null) {
-        const d = new Date();
-        d.setDate(d.getDate() + a.setDueOffsetDays);
-        patch.due_date = toISODate(d);
-      }
-      if (a.addTag) {
-        const existing = (ctx.tags ?? []).map((t) => t.toLowerCase());
-        if (!existing.includes(a.addTag.toLowerCase())) {
-          patch.tags = [...(ctx.tags ?? []), a.addTag];
+    try {
+      if (a.type === "create_task") {
+        const due = new Date(ctx.anchorDate);
+        due.setDate(due.getDate() + (a.dueOffsetDays ?? 0));
+        const { error } = await supabase.from("tasks").insert({
+          title: fillTemplate(a.title || "{title}", ctx.title),
+          due_date: toISODate(due),
+          due_kind: "day",
+          priority: a.priority ?? 0,
+          project: a.project ?? null,
+          tags: a.tag ? [a.tag] : undefined,
+          shared: false,
+        });
+        if (error) throw new Error(error.message);
+      } else if (a.type === "update_item") {
+        if (!ctx.entity) continue; // no concrete row to patch (e.g. event triggers)
+        const patch: Record<string, unknown> = {};
+        if (a.setPriority != null) patch.priority = a.setPriority;
+        if (a.setProject) patch.project = a.setProject;
+        if (a.setDueOffsetDays != null) {
+          const d = new Date();
+          d.setDate(d.getDate() + a.setDueOffsetDays);
+          patch.due_date = toISODate(d);
         }
-      }
-      if (Object.keys(patch).length > 0) {
-        await supabase.from(ctx.entity.table).update(patch).eq("id", ctx.entity.id);
-      }
-    } else if (a.type === "send_notification") {
-      if (!userId || !sendPush) continue;
-      await sendPush(supabase, userId, {
-        title: fillTemplate(a.title || "{title}", ctx.title),
-        body: fillTemplate(a.body || "{title}", ctx.title),
-        url: "/app",
-      });
-    } else if (a.type === "create_note") {
-      const title = fillTemplate(a.title || "{title}", ctx.title);
-      const body = fillTemplate(a.body || "", ctx.title);
-      if (a.appendToDaily) {
-        const todayStr = toISODate(new Date());
-        const { data: existing } = await supabase
-          .from("notes")
-          .select("id, body")
-          .eq("note_date", todayStr)
-          .is("deleted_at", null)
-          .limit(1)
-          .maybeSingle();
-        if (existing) {
-          const prevBody = (existing as { body?: string | null }).body ?? "";
-          await supabase
+        if (a.addTag) {
+          const existing = (ctx.tags ?? []).map((t) => t.toLowerCase());
+          if (!existing.includes(a.addTag.toLowerCase())) {
+            patch.tags = [...(ctx.tags ?? []), a.addTag];
+          }
+        }
+        if (Object.keys(patch).length > 0) {
+          const { error } = await supabase.from(ctx.entity.table).update(patch).eq("id", ctx.entity.id);
+          if (error) throw new Error(error.message);
+        }
+      } else if (a.type === "send_notification") {
+        if (!userId || !sendPush) continue;
+        await sendPush(supabase, userId, {
+          title: fillTemplate(a.title || "{title}", ctx.title),
+          body: fillTemplate(a.body || "{title}", ctx.title),
+          url: "/app",
+        });
+      } else if (a.type === "create_note") {
+        const title = fillTemplate(a.title || "{title}", ctx.title);
+        const body = fillTemplate(a.body || "", ctx.title);
+        if (a.appendToDaily) {
+          const todayStr = toISODate(new Date());
+          const { data: existing } = await supabase
             .from("notes")
-            .update({ body: prevBody ? `${prevBody}\n\n${body}` : body })
-            .eq("id", (existing as { id: string }).id);
+            .select("id, body")
+            .eq("note_date", todayStr)
+            .is("deleted_at", null)
+            .limit(1)
+            .maybeSingle();
+          if (existing) {
+            const prevBody = (existing as { body?: string | null }).body ?? "";
+            const { error } = await supabase
+              .from("notes")
+              .update({ body: prevBody ? `${prevBody}\n\n${body}` : body })
+              .eq("id", (existing as { id: string }).id);
+            if (error) throw new Error(error.message);
+          } else {
+            const { error } = await supabase.from("notes").insert({ title, body, note_date: todayStr });
+            if (error) throw new Error(error.message);
+          }
         } else {
-          await supabase.from("notes").insert({ title, body, note_date: todayStr });
+          const { error } = await supabase.from("notes").insert({ title, body });
+          if (error) throw new Error(error.message);
         }
-      } else {
-        await supabase.from("notes").insert({ title, body });
       }
+    } catch (e) {
+      console.error(`[automations] action "${a.type}" failed:`, (e as Error).message);
     }
   }
 }
@@ -307,9 +321,16 @@ export async function runTriggerAutomations(
     uid = data.user?.id ?? null;
   }
   for (const r of rules) {
-    const cfg = r.config;
-    if (!matchesAll(ctx, cfg.conditions)) continue;
-    await runActions(supabase, uid, cfg.actions, ctx, sendPush);
+    // Isolate each rule too — runActions already catches per-action errors,
+    // but a rule with a malformed condition (or any other unexpected throw)
+    // must not stop the rules after it in this same batch from evaluating.
+    try {
+      const cfg = r.config;
+      if (!matchesAll(ctx, cfg.conditions)) continue;
+      await runActions(supabase, uid, cfg.actions, ctx, sendPush);
+    } catch (e) {
+      console.error(`[automations] rule "${r.name}" (${r.id}) failed:`, (e as Error).message);
+    }
   }
 }
 

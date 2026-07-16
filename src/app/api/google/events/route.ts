@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
     title?: string;
     start?: string;
     end?: string;
+    allDay?: boolean;
     accountId?: string;
     calendarId?: string;
     location?: string | null;
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
       title: body.title ?? "(No title)",
       start: body.start,
       end: body.end,
+      allDay: body.allDay ?? false,
       location: body.location ?? null,
       description: body.description ?? null,
       recurrence: body.recurrence ?? null,

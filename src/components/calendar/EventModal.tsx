@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { format } from "date-fns";
+import { format, isSameDay } from "date-fns";
 import {
   Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon, Pencil, X, ListTodo,
 } from "lucide-react";
@@ -25,6 +25,10 @@ export type EventDraft = {
   meetingLink?: string | null;
   recurrence?: string[] | null;
   recurring?: boolean;
+  /** All-day (or multi-day) event — `start`/`end` are still Date objects at
+   * local midnight, but no time-of-day is meaningful. `end` follows Google's
+   * exclusive-end-date convention (the day AFTER the last inclusive day). */
+  allDay?: boolean;
 };
 
 const RRULE: Record<string, string[] | null> = {
@@ -44,6 +48,12 @@ type Cal = {
   canWrite: boolean;
   primary: boolean;
 };
+
+function dayBefore(d: Date): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() - 1);
+  return out;
+}
 
 const STATUS_COLOR: Record<string, string> = {
   accepted: "#4FD1A5",
@@ -81,6 +91,21 @@ export default function EventModal({
   const [location, setLocation] = useState(draft.location ?? "");
   const [description, setDescription] = useState(draft.description ?? "");
   const [repeat, setRepeat] = useState<string>("none");
+  const [allDay, setAllDayState] = useState(!!draft.allDay);
+  // Inclusive last day for an all-day event, shown to the user. draft.end
+  // follows Google's exclusive-end-date convention (one day past the last
+  // real day), so we subtract a day here and add it back on save.
+  const [endDate, setEndDate] = useState(() =>
+    format(draft.allDay ? dayBefore(draft.end) : draft.start, "yyyy-MM-dd")
+  );
+  // Checking "All day" on a previously-timed event has no meaningful old end
+  // date to fall back to, so it resets to a single day rather than keeping
+  // whatever time-based end happened to be set.
+  const setAllDay = (checked: boolean) => {
+    setAllDayState(checked);
+    if (checked) setEndDate(date);
+  };
+  const viewEnd = draft.allDay ? dayBefore(draft.end) : draft.end;
 
   // Sharing with partner — a denormalised snapshot in `shared_events`, never
   // touches Google. Only meaningful for a real, already-created event.
@@ -155,10 +180,13 @@ export default function EventModal({
   // Discard any in-progress edits and go back to the read-only view.
   const cancelEdit = () => {
     setTitle(draft.title);
+    setDate(format(draft.start, "yyyy-MM-dd"));
     setStartTime(format(draft.start, "HH:mm"));
     setEndTime(format(draft.end, "HH:mm"));
     setLocation(draft.location ?? "");
     setDescription(draft.description ?? "");
+    setAllDayState(!!draft.allDay);
+    setEndDate(format(draft.allDay ? dayBefore(draft.end) : draft.start, "yyyy-MM-dd"));
     setMode("view");
   };
 
@@ -206,15 +234,28 @@ export default function EventModal({
   };
 
   const save = () => {
-    const startAt = build(date, startTime);
-    let endAt = build(date, endTime);
-    if (endAt <= startAt) endAt = new Date(endAt.getTime() + 24 * 60 * 60 * 1000);
+    let startAt: Date;
+    let endAt: Date;
+    if (allDay) {
+      startAt = new Date(`${date}T00:00:00`);
+      const inclusiveEndAt = new Date(`${(endDate || date)}T00:00:00`);
+      // Google's all-day end date is exclusive — the day after the last
+      // real day — even for a single-day event.
+      endAt = new Date(inclusiveEndAt);
+      endAt.setDate(endAt.getDate() + 1);
+      if (endAt <= startAt) endAt = new Date(startAt.getTime() + 24 * 60 * 60 * 1000);
+    } else {
+      startAt = build(date, startTime);
+      endAt = build(date, endTime);
+      if (endAt <= startAt) endAt = new Date(endAt.getTime() + 24 * 60 * 60 * 1000);
+    }
     const [accId, calId] = target.includes("::") ? target.split("::") : [undefined, undefined];
     onSave({
       id: draft.id,
       title: title.trim() || "(No title)",
       start: startAt,
       end: endAt,
+      allDay,
       accountId: draft.id ? draft.accountId : (accId ?? draft.accountId),
       calendarId: draft.id ? draft.calendarId : (calId ?? draft.calendarId),
       location: location.trim(),
@@ -248,8 +289,10 @@ export default function EventModal({
           </button>
         </div>
         <p className="mb-4 text-sm text-txt3">
-          {format(draft.start, "EEEE, MMM d")}
-          {mode === "view" && ` · ${format(draft.start, "h:mm a")} – ${format(draft.end, "h:mm a")}`}
+          {draft.allDay && !isSameDay(draft.start, viewEnd)
+            ? `${format(draft.start, "MMM d")} – ${format(viewEnd, "MMM d")}`
+            : format(draft.start, "EEEE, MMM d")}
+          {mode === "view" && (draft.allDay ? " · All day" : ` · ${format(draft.start, "h:mm a")} – ${format(draft.end, "h:mm a")}`)}
           {draft.accountEmail ? ` · ${draft.accountEmail}` : ""}
         </p>
 
@@ -393,6 +436,16 @@ export default function EventModal({
           </div>
         )}
 
+        <label className="mb-3 flex items-center gap-2 text-sm text-txt2">
+          <input
+            type="checkbox"
+            checked={allDay}
+            onChange={(e) => setAllDay(e.target.checked)}
+            className="h-4 w-4 accent-accent"
+          />
+          All day
+        </label>
+
         <div className="mb-3 flex items-center gap-2">
           <CalIcon className="h-4 w-4 shrink-0 text-txt3" />
           <input
@@ -401,23 +454,37 @@ export default function EventModal({
             onChange={(e) => e.target.value && setDate(e.target.value)}
             className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
           />
+          {allDay && (
+            <>
+              <span className="shrink-0 text-txt3">→</span>
+              <input
+                type="date"
+                value={endDate}
+                min={date}
+                onChange={(e) => e.target.value && setEndDate(e.target.value)}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
+              />
+            </>
+          )}
         </div>
 
-        <div className="mb-3 flex items-center gap-2">
-          <input
-            type="time"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            className="rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
-          />
-          <span className="text-txt3">→</span>
-          <input
-            type="time"
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            className="rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
-          />
-        </div>
+        {!allDay && (
+          <div className="mb-3 flex items-center gap-2">
+            <input
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
+            />
+            <span className="text-txt3">→</span>
+            <input
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className="rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
+            />
+          </div>
+        )}
 
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-surface px-3">
           <MapPin className="h-4 w-4 shrink-0 text-txt3" />

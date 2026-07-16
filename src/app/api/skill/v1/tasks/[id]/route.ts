@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticateApiRequest } from "@/lib/apiAuth";
+import { runTriggerAutomations, taskCtx, type TaskLike } from "@/lib/automations";
+import { sendPushToUser } from "@/lib/push-server";
 
 const TASK_COLS =
   "id,title,notes,is_done,due_date,due_kind,priority,rrule,repeat,project,location,sort_order,tags,estimate_minutes,parent_id,scheduled_start,scheduled_end,linked_event_id,linked_event_title,created_at";
@@ -29,6 +31,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     .select(TASK_COLS)
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const ctx = taskCtx(data as TaskLike);
+  if (patch.is_done === true) {
+    await runTriggerAutomations(db, "task_completed", ctx, userId, sendPushToUser);
+  } else {
+    await runTriggerAutomations(db, "task_updated", ctx, userId, sendPushToUser);
+    await runTriggerAutomations(db, "task_saved", ctx, userId, sendPushToUser);
+  }
   return NextResponse.json({ task: data });
 }
 

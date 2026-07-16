@@ -4,6 +4,8 @@ import { authenticateApiRequest } from "@/lib/apiAuth";
 import { getGoogleAccessToken } from "@/lib/google/tokens";
 import { updateEventRaw, deleteEventRaw, mapEvent } from "@/lib/google/calendar";
 import type { GoogleAccountRow } from "@/lib/google/session";
+import { runTriggerAutomations } from "@/lib/automations";
+import { sendPushToUser } from "@/lib/push-server";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   };
   try {
     const e = await updateEventRaw(r.token, r.calendarId, params.id, body);
+    await runTriggerAutomations(
+      auth.db,
+      "event_updated",
+      {
+        title: e.summary ?? body.title ?? "",
+        location: (body.location ?? e.location ?? null) as string | null,
+        anchorDate: new Date(e.start?.dateTime ?? e.start?.date ?? Date.now()),
+        entity: null,
+      },
+      auth.userId,
+      sendPushToUser
+    );
     return NextResponse.json({
       event: mapEvent(e, {
         accountId: r.acc.id,

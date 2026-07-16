@@ -35,6 +35,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     title?: string;
     start?: string;
     end?: string;
+    allDay?: boolean;
     location?: string | null;
     description?: string | null;
   };

@@ -4,6 +4,8 @@ import { getGoogleAccessToken } from "@/lib/google/tokens";
 import { listCalendars, listEventsRaw, createEventRaw, mapEvent } from "@/lib/google/calendar";
 import type { CalendarEvent } from "@/lib/types";
 import type { GoogleAccountRow } from "@/lib/google/session";
+import { runTriggerAutomations } from "@/lib/automations";
+import { sendPushToUser } from "@/lib/push-server";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +106,18 @@ export async function POST(req: NextRequest) {
       description: body.description ?? null,
       recurrence: body.recurrence ?? null,
     });
+    await runTriggerAutomations(
+      db,
+      "event_created",
+      {
+        title: e.summary ?? body.title ?? "(No title)",
+        location: body.location ?? null,
+        anchorDate: new Date(body.start),
+        entity: null,
+      },
+      userId,
+      sendPushToUser
+    );
     return NextResponse.json({
       event: mapEvent(e, {
         accountId: target.id,

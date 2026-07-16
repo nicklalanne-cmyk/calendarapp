@@ -10,6 +10,13 @@ import {
   mapEvent,
 } from "@/lib/google/calendar";
 import type { CalendarEvent } from "@/lib/types";
+// This route runs server-side only (a Next.js route handler, never bundled
+// into client code), so it calls the automation engine directly rather than
+// through the client-facing fireTaskCreated-style wrappers in
+// src/lib/automations.ts (those proxy through /api/automations/fire, which
+// only makes sense from a browser with a same-origin relative fetch).
+import { runTriggerAutomations, taskCtx, type TaskLike } from "@/lib/automations";
+import { sendPushToUser } from "@/lib/push-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -320,6 +327,9 @@ Rules:
         const { data, error } = await supabase.from("tasks").insert(row).select(TASK_COLS).single();
         if (error) throw new Error(error.message);
         mutated.tasks = true;
+        const ctx = taskCtx(data as TaskLike);
+        await runTriggerAutomations(supabase, "task_created", ctx, user!.id, sendPushToUser);
+        await runTriggerAutomations(supabase, "task_saved", ctx, user!.id, sendPushToUser);
         return data;
       }
       case "update_task": {
@@ -336,6 +346,13 @@ Rules:
           .from("tasks").update(patch).eq("id", id).select(TASK_COLS).single();
         if (error) throw new Error(error.message);
         mutated.tasks = true;
+        const ctx = taskCtx(data as TaskLike);
+        if (patch.is_done === true) {
+          await runTriggerAutomations(supabase, "task_completed", ctx, user!.id, sendPushToUser);
+        } else {
+          await runTriggerAutomations(supabase, "task_updated", ctx, user!.id, sendPushToUser);
+          await runTriggerAutomations(supabase, "task_saved", ctx, user!.id, sendPushToUser);
+        }
         return data;
       }
       case "delete_task": {
@@ -402,6 +419,13 @@ Rules:
           recurrence: input.recurrence ?? null,
         });
         mutated.events = true;
+        await runTriggerAutomations(
+          supabase,
+          "event_created",
+          { title: e.summary ?? input.title, location: input.location ?? null, anchorDate: new Date(input.start), entity: null },
+          user!.id,
+          sendPushToUser
+        );
         return mapEvent(e, {
           accountId: target.id,
           accountEmail: target.google_email,
@@ -421,6 +445,18 @@ Rules:
         }
         const e = await updateEventRaw(token, input.calendarId, input.id, patch);
         mutated.events = true;
+        await runTriggerAutomations(
+          supabase,
+          "event_updated",
+          {
+            title: e.summary ?? input.title ?? "",
+            location: (input.location ?? e.location ?? null) as string | null,
+            anchorDate: new Date(e.start?.dateTime ?? e.start?.date ?? Date.now()),
+            entity: null,
+          },
+          user!.id,
+          sendPushToUser
+        );
         return mapEvent(e, {
           accountId: acc.id,
           accountEmail: acc.google_email,

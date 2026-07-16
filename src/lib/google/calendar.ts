@@ -113,8 +113,13 @@ export async function listEventsRaw(
 
 type WriteInput = {
   title: string;
+  /** Timed events: an ISO datetime. All-day events: a plain "yyyy-MM-dd" date
+   * string — `end` must be the day AFTER the last inclusive day, per Google's
+   * exclusive-end-date convention for all-day events. */
   start: string;
   end: string;
+  /** When true, `start`/`end` above are date-only strings, not datetimes. */
+  allDay?: boolean;
   location?: string | null;
   description?: string | null;
   recurrence?: string[] | null;
@@ -127,8 +132,8 @@ export async function createEventRaw(
 ): Promise<GEvent> {
   const body: Record<string, unknown> = {
     summary: input.title,
-    start: { dateTime: input.start },
-    end: { dateTime: input.end },
+    start: input.allDay ? { date: input.start } : { dateTime: input.start },
+    end: input.allDay ? { date: input.end } : { dateTime: input.end },
   };
   if (input.location != null) body.location = input.location;
   if (input.description != null) body.description = input.description;
@@ -146,12 +151,20 @@ export async function updateEventRaw(
   accessToken: string,
   calendarId: string,
   eventId: string,
-  patch: { title?: string; start?: string; end?: string; location?: string | null; description?: string | null }
+  patch: {
+    title?: string;
+    start?: string;
+    end?: string;
+    /** See WriteInput.allDay — applies to both start and end together. */
+    allDay?: boolean;
+    location?: string | null;
+    description?: string | null;
+  }
 ): Promise<GEvent> {
   const body: Record<string, unknown> = {};
   if (patch.title !== undefined) body.summary = patch.title;
-  if (patch.start !== undefined) body.start = { dateTime: patch.start };
-  if (patch.end !== undefined) body.end = { dateTime: patch.end };
+  if (patch.start !== undefined) body.start = patch.allDay ? { date: patch.start } : { dateTime: patch.start };
+  if (patch.end !== undefined) body.end = patch.allDay ? { date: patch.end } : { dateTime: patch.end };
   if (patch.location !== undefined) body.location = patch.location;
   if (patch.description !== undefined) body.description = patch.description;
   const res = await fetch(
