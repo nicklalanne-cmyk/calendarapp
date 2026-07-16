@@ -90,6 +90,7 @@ export default function Planner() {
   // Guards against a slower, older request (e.g. the initial "day" fetch) resolving
   // after a newer one (the saved default "month" view) and clobbering its results.
   const reqSeq = useRef(0);
+  const lastSyncErrorRef = useRef("");
 
   // Stale-while-revalidate: cached ranges render instantly (no spinner, no
   // network wait) while a fresh copy is fetched silently in the background.
@@ -115,13 +116,30 @@ export default function Planner() {
       const params = new URLSearchParams({ timeMin, timeMax });
       try {
         const res = await fetch(`/api/google/events?${params.toString()}`);
-        const json = (await res.json()) as { events?: CalendarEvent[]; noAccounts?: boolean };
+        const json = (await res.json()) as { events?: CalendarEvent[]; noAccounts?: boolean; errors?: string[] };
         if (seq !== reqSeq.current) return; // a newer request has since been issued
         const noAcc = Boolean(json.noAccounts);
         const evs = json.events ?? [];
         setCachedEvents(key, evs, noAcc);
         setNoAccounts(noAcc);
         setEvents(evs);
+        // The API silently drops any account it couldn't sync (expired
+        // token, revoked access) so the rest of the calendar still loads —
+        // but that means a stale/broken connection can go unnoticed
+        // indefinitely unless we surface it somewhere. One toast per distinct
+        // error set, not on every poll.
+        const errs = json.errors ?? [];
+        if (errs.length && lastSyncErrorRef.current !== errs.join(",")) {
+          lastSyncErrorRef.current = errs.join(",");
+          toast(
+            errs.length === 1
+              ? `Couldn't sync ${errs[0]} — reconnect it in Accounts`
+              : `Couldn't sync ${errs.length} accounts — check Accounts`,
+            "error"
+          );
+        } else if (!errs.length) {
+          lastSyncErrorRef.current = "";
+        }
       } catch {
         if (seq !== reqSeq.current) return;
         if (!cached) {
@@ -476,6 +494,8 @@ export default function Planner() {
   };
 
   const moveScheduledTask = async (t: Task, start: Date, end: Date) => {
+    const prevStart = t.scheduled_start;
+    const prevEnd = t.scheduled_end;
     setTasks((cur) =>
       cur.map((x) =>
         x.id === t.id
@@ -487,7 +507,16 @@ export default function Planner() {
       .from("tasks")
       .update({ scheduled_start: start.toISOString(), scheduled_end: end.toISOString() })
       .eq("id", t.id);
-    if (error) toast(error.message, "error");
+    if (error) {
+      // Roll back the optimistic move — otherwise a failed save leaves the
+      // block sitting in its dragged-to spot on screen while the database
+      // still has the old time, until the next full reload silently snaps
+      // it back (confusing if you keep editing in the meantime).
+      setTasks((cur) =>
+        cur.map((x) => (x.id === t.id ? { ...x, scheduled_start: prevStart, scheduled_end: prevEnd } : x))
+      );
+      toast(error.message, "error");
+    }
   };
 
   const onGridClick = (ev: CalendarEvent) => {

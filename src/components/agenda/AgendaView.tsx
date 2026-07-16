@@ -90,6 +90,8 @@ export default function AgendaView() {
   const [mode, setMode] = useState<"day" | "week">("day");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const touchX = useRef<number | null>(null);
+  const touchY = useRef<number | null>(null);
+  const lastSyncErrorRef = useRef("");
   const { settings } = useSettings();
   const appliedDefaultMode = useRef(false);
 
@@ -137,11 +139,25 @@ export default function AgendaView() {
         const params = new URLSearchParams({ timeMin, timeMax });
         try {
           const res = await fetch(`/api/google/events?${params.toString()}`);
-          const j = (await res.json()) as { events?: CalendarEvent[]; noAccounts?: boolean };
+          const j = (await res.json()) as { events?: CalendarEvent[]; noAccounts?: boolean; errors?: string[] };
           if (seq !== reqSeq.current) return;
           const evs = j.events ?? [];
           setCachedEvents(key, evs, Boolean(j.noAccounts));
           setEvents(evs);
+          // Surface accounts the sync silently skipped (expired/revoked
+          // token) instead of letting a broken connection go unnoticed.
+          const errs = j.errors ?? [];
+          if (errs.length && lastSyncErrorRef.current !== errs.join(",")) {
+            lastSyncErrorRef.current = errs.join(",");
+            toast(
+              errs.length === 1
+                ? `Couldn't sync ${errs[0]} — reconnect it in Accounts`
+                : `Couldn't sync ${errs.length} accounts — check Accounts`,
+              "error"
+            );
+          } else if (!errs.length) {
+            lastSyncErrorRef.current = "";
+          }
         } catch {
           if (seq !== reqSeq.current) return;
           if (!cached) setEvents([]);
@@ -1215,11 +1231,17 @@ export default function AgendaView() {
           className="min-h-0 flex-1 overflow-y-auto"
           onTouchStart={(e) => {
             touchX.current = e.touches[0].clientX;
+            touchY.current = e.touches[0].clientY;
           }}
           onTouchEnd={(e) => {
-            if (touchX.current == null) return;
+            if (touchX.current == null || touchY.current == null) return;
             const dx = e.changedTouches[0].clientX - touchX.current;
-            if (Math.abs(dx) > 60) {
+            const dy = e.changedTouches[0].clientY - touchY.current;
+            // Require the gesture to actually be mostly horizontal —
+            // otherwise a vertical scroll (or a diagonal scroll-then-lift)
+            // that happens to also drift 60px sideways triggers an
+            // unintended day/week navigation.
+            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
               // Day mode swipes one day at a time; week mode swipes a whole
               // week — previously this always shifted by a week even in day
               // mode, so swiping "moved" the view but the visible day (and
@@ -1228,6 +1250,7 @@ export default function AgendaView() {
               else shiftWeek(dx < 0 ? 1 : -1);
             }
             touchX.current = null;
+            touchY.current = null;
           }}
         >
           {mode === "week" ? (
