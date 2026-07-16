@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2,
-  Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2,
+  Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2, ShieldAlert,
 } from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
@@ -134,6 +134,38 @@ export default function SettingsView() {
       toast("API key revoked");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const exportData = () => {
+    // A plain link download would work too, but this way we get a real error
+    // toast if the export fails instead of the browser silently opening a
+    // JSON error blob in a new tab.
+    (async () => {
+      const res = await fetch("/api/account/export");
+      if (!res.ok) return toast("Couldn't export your data", "error");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cadence-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    })();
+  };
+
+  const deleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      const res = await fetch("/api/account/delete", { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return toast(j.error ?? "Couldn't delete your account", "error");
+      window.location.href = "/login";
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -455,6 +487,49 @@ export default function SettingsView() {
             <span className="min-w-0 flex-1 text-sm text-txt">Connected calendars</span>
             <ChevronRight className="h-4 w-4 shrink-0 text-txt3" />
           </Link>
+        </section>
+
+        <section className="mb-6 mt-6 rounded-xl border border-border bg-surface p-4">
+          <h2 className="text-sm font-semibold">Your data</h2>
+          <p className="mb-3 text-xs text-txt3">
+            Download everything Cadence has stored for you — tasks, notes, notebooks,
+            automations, and settings — as a single JSON file.
+          </p>
+          <button
+            onClick={exportData}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-txt2 hover:bg-surface2"
+          >
+            <Download className="h-4 w-4" /> Export my data
+          </button>
+        </section>
+
+        <section className="rounded-xl border border-danger/30 bg-danger/5 p-4">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-danger">
+            <ShieldAlert className="h-4 w-4" /> Danger zone
+          </h2>
+          <p className="mb-3 text-xs text-txt3">
+            Permanently deletes your account and everything in it — tasks, notes, notebooks,
+            automations, connected Google accounts. This can't be undone.
+          </p>
+          <label className="mb-2 block text-xs text-txt3">
+            Type <span className="font-mono font-semibold text-txt">DELETE</span> to confirm
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder="DELETE"
+              className="w-32 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm outline-none focus:border-danger"
+            />
+            <button
+              onClick={deleteAccount}
+              disabled={deleteConfirm !== "DELETE" || deletingAccount}
+              className="flex items-center gap-1.5 rounded-lg bg-danger px-3 py-2 text-sm font-medium text-white hover:bg-danger/90 disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+              {deletingAccount ? "Deleting…" : "Delete my account"}
+            </button>
+          </div>
         </section>
 
         {!ready && <p className="mt-4 text-xs text-txt3">Loading your settings…</p>}
