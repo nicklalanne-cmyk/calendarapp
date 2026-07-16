@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { addDays, addMonths, format } from "date-fns";
-import { ChevronLeft, ChevronRight, Link2, ListTodo, Loader2, CalendarPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Link2, ListTodo, Loader2, CalendarPlus, HelpCircle, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Task, CalendarEvent } from "@/lib/types";
 import { dayRange, weekRange, monthRange, fmtDayHeader, fmtMonthYear } from "@/lib/dates";
@@ -703,6 +703,11 @@ export default function Planner() {
     setDraft({ title: "", start: s, end: e });
   }, [date]);
 
+  // The d/w/m/t/c/arrow shortcuts below existed with no way to discover them
+  // short of reading the source — "?" toggles a small reference overlay,
+  // itself a common enough convention that it's at least guessable.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -717,6 +722,7 @@ export default function Planner() {
         case "c": newEventNow(); break;
         case "arrowleft": shift(-1); break;
         case "arrowright": shift(1); break;
+        case "?": setShortcutsOpen((v) => !v); break;
       }
     };
     window.addEventListener("keydown", onKey);
@@ -824,6 +830,13 @@ export default function Planner() {
             >
               Today
             </button>
+            <button
+              onClick={() => setShortcutsOpen(true)}
+              aria-label="Keyboard shortcuts"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-txt3 active:bg-surface2"
+            >
+              <HelpCircle className="h-[18px] w-[18px]" />
+            </button>
           </div>
           <div className="flex items-center gap-0.5">
             <button
@@ -908,6 +921,14 @@ export default function Planner() {
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => setShortcutsOpen(true)}
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+              className="flex items-center justify-center rounded-lg p-1 text-txt3 hover:bg-surface hover:text-txt2"
+            >
+              <HelpCircle className="h-[18px] w-[18px]" />
+            </button>
           </div>
         </header>
 
@@ -997,6 +1018,51 @@ export default function Planner() {
           onSave={createTask}
           onClose={() => setCreating(false)}
         />
+      )}
+      {shortcutsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl bg-surface p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Keyboard shortcuts</h2>
+              <button
+                onClick={() => setShortcutsOpen(false)}
+                aria-label="Close"
+                className="rounded-md p-1 text-txt3 hover:bg-surface2 hover:text-txt2"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <dl className="space-y-1.5 text-sm">
+              {[
+                ["D", "Day view"],
+                ["W", "Week view"],
+                ["M", "Month view"],
+                ["T", "Jump to today"],
+                ["C", "Create an event"],
+                ["← / →", "Previous / next period"],
+                ["?", "Toggle this help"],
+              ].map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between gap-3">
+                  <dt className="text-txt2">{label}</dt>
+                  <dd>
+                    <kbd className="rounded-md border border-border bg-surface2 px-1.5 py-0.5 font-mono text-xs text-txt">
+                      {key}
+                    </kbd>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-xs text-txt3">
+              Shortcuts are disabled while typing in a field or while a form is open.
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

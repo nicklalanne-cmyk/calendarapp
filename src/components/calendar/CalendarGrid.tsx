@@ -339,11 +339,25 @@ function DayColumn({
         return (
           <div
             key={ev.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`${ev.title}, ${fmtTime(new Date(ev.start))}${isTask ? (ev.taskDone ? ", done" : ", task") : ""}`}
             className={clsx(
               "absolute z-10 select-none overflow-hidden rounded-md border-l-2 text-left",
+              "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
               isTask && "border border-dashed border-l-2",
               isTask && ev.taskDone && "opacity-50"
             )}
+            onKeyDown={(e) => {
+              // Mouse users can drag these blocks to move/resize, but there's
+              // no keyboard equivalent for that (yet) — Enter/Space at least
+              // makes "open this event" reachable without a mouse, matching
+              // what a click with no drag already does.
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onEventClick(ev);
+              }
+            }}
             style={{
               top,
               height,
