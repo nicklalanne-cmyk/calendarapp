@@ -86,7 +86,14 @@ function matches(rule: Rule, d: Date, anchor: Date): boolean {
     }
     case "MONTHLY": {
       if (diffMonths(anchor, d) % rule.interval !== 0) return false;
-      if (rule.bymonthday) return d.getDate() === rule.bymonthday;
+      if (rule.bymonthday) {
+        // Clamp to the last real day of short months (e.g. "the 31st" lands
+        // on Feb 28/29, Apr 30, ...) instead of silently skipping the month
+        // entirely, which is what a plain `=== rule.bymonthday` check does.
+        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        const effectiveDay = Math.min(rule.bymonthday, daysInMonth);
+        return d.getDate() === effectiveDay;
+      }
       const spec = rule.byday?.[0];
       if (!spec) return d.getDate() === anchor.getDate();
       const { n, code: c } = splitByDay(spec);
@@ -114,7 +121,14 @@ export function nextOccurrence(
   base.setHours(0, 0, 0, 0);
   const anchor = anchorISO ? fromISODate(anchorISO) : base;
   const d = new Date(base);
-  for (let i = 0; i < 800; i++) {
+  // 800 days (~2.2 years) is long enough for daily/weekly/monthly patterns,
+  // but a YEARLY rule anchored on Feb 29 only recurs every 4 years (up to
+  // ~1461 days out) — and a large INTERVAL compounds that further. Search
+  // far enough out to guarantee catching the next leap-year Feb 29 even at
+  // INTERVAL=4, with headroom; this is still cheap since each step is just
+  // a date-arithmetic comparison.
+  const maxDays = rule.freq === "YEARLY" ? Math.max(1500, rule.interval * 366 + 366) : 800;
+  for (let i = 0; i < maxDays; i++) {
     d.setDate(d.getDate() + 1);
     if (matches(rule, d, anchor)) return toISODate(d);
   }

@@ -225,5 +225,14 @@ export function nextDue(
 ): string | null {
   const rule = task.rrule || legacyToRRule(task.repeat ?? null);
   if (!rule) return null;
-  return nextOccurrence(rule, from, from);
+  // If a recurring task sat overdue for a while before being completed, its
+  // stored due_date can be well in the past. Searching forward from that
+  // stale date would just hand back the *next missed* occurrence — itself
+  // already overdue, or several occurrences behind today. Start the search
+  // from today instead once we've slipped past the original due date, but
+  // keep the original date as the anchor so the weekday/month-day/interval
+  // pattern (e.g. "every other Tuesday") isn't reset by the recompute.
+  const todayISO = toISODate(new Date());
+  const searchFrom = from && from > todayISO ? from : todayISO;
+  return nextOccurrence(rule, searchFrom, from ?? searchFrom);
 }
