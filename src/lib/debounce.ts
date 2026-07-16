@@ -4,14 +4,17 @@
  */
 export function makeDebouncer(ms = 500) {
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const pendingFns = new Map<string, () => void>();
 
   const run = (key: string, fn: () => void) => {
     const t = timers.get(key);
     if (t) clearTimeout(t);
+    pendingFns.set(key, fn);
     timers.set(
       key,
       setTimeout(() => {
         timers.delete(key);
+        pendingFns.delete(key);
         fn();
       }, ms)
     );
@@ -22,8 +25,13 @@ export function makeDebouncer(ms = 500) {
 
   /** Fire anything still pending right now (e.g. on unmount / navigate away). */
   const flushAll = () => {
-    for (const [, t] of timers) clearTimeout(t);
+    for (const [key, t] of timers) {
+      clearTimeout(t);
+      const fn = pendingFns.get(key);
+      if (fn) fn();
+    }
     timers.clear();
+    pendingFns.clear();
   };
 
   return { run, pending, flushAll };

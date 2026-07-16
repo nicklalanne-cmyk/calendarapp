@@ -135,6 +135,14 @@ export default function NotesView() {
     supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
   }, [supabase]);
 
+  // Flush any in-flight ink autosave before unmount/navigate so a pause-then-leave
+  // doesn't silently drop the last stroke batch.
+  useEffect(() => {
+    return () => {
+      inkDebouncer.flushAll();
+    };
+  }, [inkDebouncer]);
+
   const load = useCallback(async () => {
     const { data } = await supabase
       .from("notes")

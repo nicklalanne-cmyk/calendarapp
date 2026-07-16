@@ -82,6 +82,16 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
     load();
   }, [load]);
 
+  // Flush any in-flight page/element/title autosave before unmount/navigate.
+  // saveDebouncer is module-scoped (shared across all NotebookEditor mounts),
+  // but flushAll() only touches whatever keys are currently pending, so this
+  // still correctly flushes just this instance's outstanding writes.
+  useEffect(() => {
+    return () => {
+      saveDebouncer.flushAll();
+    };
+  }, []);
+
   // ?import=1 — set by NotebooksView when the user picked "Import a PDF" as
   // the starting page style, so the file picker opens the moment we land here.
   useEffect(() => {
