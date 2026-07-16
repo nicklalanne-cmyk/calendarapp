@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Star, Trash2, Link2 } from "lucide-react";
+import { Plus, Star, Trash2, Link2, AlertTriangle } from "lucide-react";
 import type { ConnectedAccount } from "@/lib/types";
 
 export default function AccountsView() {
@@ -73,20 +73,37 @@ export default function AccountsView() {
           accounts.map((a) => (
             <div
               key={a.id}
-              className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3"
+              className={
+                "flex items-center gap-3 rounded-xl border px-4 py-3 " +
+                (a.healthy === false ? "border-danger/40 bg-danger/5" : "border-border bg-surface")
+              }
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface3 text-xs font-semibold uppercase text-txt2">
                 {a.google_email.slice(0, 1)}
               </div>
               <div className="flex-1">
                 <div className="text-sm">{a.google_email}</div>
-                {a.is_default && (
-                  <div className="flex items-center gap-1 text-xs text-accent">
-                    <Star className="h-3 w-3 fill-accent" /> Default for new events
+                {a.healthy === false ? (
+                  <div className="flex items-center gap-1 text-xs text-danger">
+                    <AlertTriangle className="h-3 w-3" /> Connection expired — events aren't syncing
                   </div>
+                ) : (
+                  a.is_default && (
+                    <div className="flex items-center gap-1 text-xs text-accent">
+                      <Star className="h-3 w-3 fill-accent" /> Default for new events
+                    </div>
+                  )
                 )}
               </div>
-              {!a.is_default && (
+              {a.healthy === false && (
+                <button
+                  onClick={connect}
+                  className="rounded-md border border-danger/40 px-2.5 py-2 text-xs font-medium text-danger active:bg-danger/10 md:py-1"
+                >
+                  Reconnect
+                </button>
+              )}
+              {a.healthy !== false && !a.is_default && (
                 <button
                   onClick={() => makeDefault(a.id)}
                   className="rounded-md border border-border px-2.5 py-2 text-xs text-txt2 active:bg-surface2 md:py-1"

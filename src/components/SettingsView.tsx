@@ -10,6 +10,7 @@ import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
 import Reminders from "@/components/Reminders";
 import { toast } from "@/lib/toast";
+import { createClient } from "@/lib/supabase/client";
 
 const VIEWS = [
   { id: "day", label: "Day" },
@@ -32,18 +33,73 @@ const PAGES = [
 
 type KeyMeta = { token_prefix: string; created_at: string; last_used_at: string | null };
 
+// Common zones first, then whatever the browser reports (if different) so
+// the picker always has the visitor's actual zone available even if it's
+// not in this short list.
+const COMMON_TIMEZONES = [
+  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "America/Anchorage", "Pacific/Honolulu", "America/Sao_Paulo",
+  "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Moscow",
+  "Asia/Dubai", "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Asia/Singapore",
+  "Australia/Sydney", "Pacific/Auckland", "UTC",
+];
+
 export default function SettingsView() {
   const { settings, update, ready } = useSettings();
+  const supabase = createClient();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [saved, setSaved] = useState(false);
   const [keyMeta, setKeyMeta] = useState<KeyMeta | null>(null);
   const [keyLoading, setKeyLoading] = useState(true);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [timezone, setTimezoneState] = useState<string>(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  );
+  const [digestHour, setDigestHourState] = useState(8);
+  const [tzLoaded, setTzLoaded] = useState(false);
 
   useEffect(() => {
     setTheme((document.documentElement.getAttribute("data-theme") as "dark" | "light") || "dark");
   }, []);
+
+  // These live in user_settings alongside the rest of the settings row, but
+  // aren't part of SettingsProvider's synced shape — until now they were only
+  // ever written as a side effect of turning push notifications on, with no
+  // dedicated UI at all, so a user who wanted a digest at 6am instead of 8am
+  // (or whose device timezone was ever wrong) had no way to fix it.
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("user_settings")
+        .select("timezone, digest_hour")
+        .maybeSingle();
+      if (data?.timezone) setTimezoneState(data.timezone);
+      if (typeof data?.digest_hour === "number") setDigestHourState(data.digest_hour);
+      setTzLoaded(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveTimezone = async (tz: string) => {
+    setTimezoneState(tz);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase
+      .from("user_settings")
+      .upsert({ user_id: u.user.id, timezone: tz, updated_at: new Date().toISOString() });
+    flash();
+  };
+
+  const saveDigestHour = async (hour: number) => {
+    setDigestHourState(hour);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase
+      .from("user_settings")
+      .upsert({ user_id: u.user.id, digest_hour: hour, updated_at: new Date().toISOString() });
+    flash();
+  };
 
   useEffect(() => {
     fetch("/api/skill/key")
@@ -271,6 +327,38 @@ export default function SettingsView() {
             </div>
             <Reminders variant="row" />
           </div>
+          {tzLoaded && (
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3">
+              <label className="block">
+                <span className="mb-1 block text-xs text-txt3">Timezone</span>
+                <select
+                  value={timezone}
+                  onChange={(e) => saveTimezone(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-surface2 px-2 py-1.5 text-sm text-txt"
+                >
+                  {[...new Set([timezone, ...COMMON_TIMEZONES])].map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-txt3">Daily digest hour</span>
+                <select
+                  value={digestHour}
+                  onChange={(e) => saveDigestHour(parseInt(e.target.value, 10))}
+                  className="w-full rounded-lg border border-border bg-surface2 px-2 py-1.5 text-sm text-txt"
+                >
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>
+                      {h === 0 ? "12:00 AM" : h < 12 ? `${h}:00 AM` : h === 12 ? "12:00 PM" : `${h - 12}:00 PM`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
         </section>
 
         <section className="mb-6 rounded-xl border border-border bg-surface p-4">

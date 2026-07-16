@@ -165,6 +165,9 @@ export type ConnectedAccount = {
   id: string;
   google_email: string;
   is_default: boolean;
+  /** false when the stored refresh token no longer works (revoked/expired) —
+   * that account's calendars silently stop syncing until reconnected. */
+  healthy?: boolean;
 };
 
 /** A denormalised snapshot of a Google Calendar event, dropped into the DB so
