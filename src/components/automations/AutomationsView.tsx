@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Zap, Plus, Trash2, X } from "lucide-react";
+import { Zap, Plus, Trash2, X, Copy } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -111,6 +111,19 @@ export default function AutomationsView() {
     }
   };
 
+  const duplicate = async (a: Automation) => {
+    const { data, error } = await supabase
+      .from("automations")
+      .insert({ name: `${a.name} (copy)`, kind: "rule", config: a.config, enabled: false })
+      .select()
+      .single();
+    if (error || !data) return toast(error?.message ?? "Couldn't duplicate", "error");
+    // Duplicated disabled by default — two identical enabled rules would
+    // otherwise both fire on the very next matching event.
+    setRows((cur) => [data as Automation, ...cur]);
+    toast(`Duplicated as "${(data as Automation).name}" (disabled)`);
+  };
+
   // Automations have no deleted_at column (unlike tasks/notes/notebooks), so
   // a real soft-delete-then-restore isn't available here. Instead: remove it
   // from view immediately, but hold off on the actual delete for a few
@@ -201,6 +214,14 @@ export default function AutomationsView() {
                 Edit
               </button>
               <button
+                onClick={() => duplicate(a)}
+                title="Duplicate"
+                aria-label="Duplicate"
+                className="rounded-md p-1.5 text-txt3 hover:bg-surface2 hover:text-txt2"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+              <button
                 onClick={() => remove(a)}
                 className="rounded-md p-1.5 text-txt3 hover:bg-danger/10 hover:text-danger"
               >
@@ -245,6 +266,7 @@ function AutomationModal({
   const cfg = automation?.config;
   const [trigger, setTrigger] = useState<TriggerType>(cfg?.trigger ?? "task_created");
   const [conditions, setConditions] = useState<Condition[]>(cfg?.conditions ?? []);
+  const [matchType, setMatchType] = useState<"all" | "any">(cfg?.matchType ?? "all");
   const [actions, setActions] = useState<Action[]>(cfg?.actions ?? [defaultAction("create_task")]);
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(cfg?.daysOfWeek ?? [1, 2, 3, 4, 5]);
   const [daysOffset, setDaysOffset] = useState<number>(cfg?.daysOffset ?? 1);
@@ -294,6 +316,7 @@ function AutomationModal({
     const config: RuleConfig = {
       trigger,
       conditions,
+      matchType: conditions.length > 1 ? matchType : undefined,
       actions,
       ...(trigger === "schedule_weekly" ? { daysOfWeek } : {}),
       ...(trigger === "date_relative" ? { daysOffset } : {}),
@@ -380,7 +403,25 @@ function AutomationModal({
 
           {fields.length > 0 && (
             <>
-              <label className={labelCls}>Conditions (all must match, optional)</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className={clsx(labelCls, "mb-0")}>Conditions (optional)</label>
+                {conditions.length > 1 && (
+                  <div className="flex overflow-hidden rounded-md border border-border text-[11px]">
+                    {(["all", "any"] as const).map((v) => (
+                      <button
+                        key={v}
+                        onClick={() => setMatchType(v)}
+                        className={clsx(
+                          "px-2 py-1",
+                          matchType === v ? "bg-accent text-white" : "bg-bg text-txt3 hover:text-txt2"
+                        )}
+                      >
+                        Match {v === "all" ? "ALL" : "ANY"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="mb-2 flex flex-col gap-2">
                 {conditions.map((c, i) => (
                   <div key={i} className="flex items-center gap-1.5">

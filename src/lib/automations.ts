@@ -108,6 +108,10 @@ export type Action = CreateTaskAction | UpdateItemAction | SendNotificationActio
 export type RuleConfig = {
   trigger: TriggerType;
   conditions: Condition[];
+  /** How multiple conditions combine — "all" (AND, the original and still
+   * default behavior) or "any" (OR). Absent on existing saved rules, which
+   * keeps them matching exactly as before. */
+  matchType?: "all" | "any";
   actions: Action[];
   /** schedule_weekly only: 0 = Sunday .. 6 = Saturday */
   daysOfWeek?: number[];
@@ -185,8 +189,16 @@ function fieldMatches(ctx: RuleContext, c: Condition): boolean {
   return a.includes(b); // contains (default)
 }
 
-export function matchesAll(ctx: RuleContext, conditions: Condition[]): boolean {
-  return (conditions ?? []).every((c) => fieldMatches(ctx, c));
+export function matchesAll(
+  ctx: RuleContext,
+  conditions: Condition[],
+  matchType: "all" | "any" = "all"
+): boolean {
+  const list = conditions ?? [];
+  if (list.length === 0) return true;
+  return matchType === "any"
+    ? list.some((c) => fieldMatches(ctx, c))
+    : list.every((c) => fieldMatches(ctx, c));
 }
 
 /** Exported for the cron route, which needs to scope rules to a specific
@@ -331,11 +343,35 @@ export async function runTriggerAutomations(
     // must not stop the rules after it in this same batch from evaluating.
     try {
       const cfg = r.config;
-      if (!matchesAll(ctx, cfg.conditions)) continue;
+      if (!matchesAll(ctx, cfg.conditions, cfg.matchType)) continue;
       await runActions(supabase, uid, cfg.actions, ctx, sendPush);
+      await logRuleFired(supabase, r.id, ctx.entity?.id ?? null);
     } catch (e) {
       console.error(`[automations] rule "${r.name}" (${r.id}) failed:`, (e as Error).message);
     }
+  }
+}
+
+/** Records that a rule fired — both a timestamped marker on the rule itself
+ * (surfaced as "Last ran" in the Automations UI) and a best-effort row in
+ * automation_fires for a fuller history. Client-triggered rules previously
+ * never wrote either of these — only the cron-swept schedule_weekly/
+ * date_relative rules did — so "Last ran" always read "Never run yet" even
+ * for rules firing constantly off task/event/note activity. Entirely
+ * best-effort: a logging failure must never take down the rule's actions,
+ * which have already run by the time this is called. */
+async function logRuleFired(supabase: SupabaseClient, ruleId: string, entityId: string | null) {
+  try {
+    const today = toISODate(new Date());
+    await supabase.from("automations").update({ last_run_on: today }).eq("id", ruleId);
+    // (rule_id, entity_id, fired_on) is unique — a second fire for the same
+    // entity on the same day is expected for some triggers (e.g. editing a
+    // task twice) and just no-ops here rather than erroring.
+    await supabase
+      .from("automation_fires")
+      .upsert({ rule_id: ruleId, entity_id: entityId, fired_on: today }, { onConflict: "rule_id,entity_id,fired_on", ignoreDuplicates: true });
+  } catch {
+    /* logging is best-effort */
   }
 }
 

@@ -226,6 +226,7 @@ async function runScheduleWeeklyAutomations(db: SupabaseClient): Promise<number>
       { title: "", anchorDate: new Date(`${localDate}T00:00:00`), entity: null },
       sendPushToUser
     );
+    await db.from("automations").update({ last_run_on: localDate }).eq("id", rule.id);
     fired++;
   }
   return fired;
@@ -280,7 +281,7 @@ async function runDateRelativeAutomations(db: SupabaseClient): Promise<number> {
 
     for (const t of tasks) {
       const ctx = taskCtx(t);
-      if (!matchesAll(ctx, cfg.conditions)) continue;
+      if (!matchesAll(ctx, cfg.conditions, cfg.matchType)) continue;
 
       const { error: fireErr } = await db
         .from("automation_fires")
@@ -288,6 +289,7 @@ async function runDateRelativeAutomations(db: SupabaseClient): Promise<number> {
       if (fireErr) continue; // already fired for this task today
 
       await runActions(db, rule.user_id, cfg.actions, ctx, sendPushToUser);
+      await db.from("automations").update({ last_run_on: localDate }).eq("id", rule.id);
       fired++;
     }
   }
