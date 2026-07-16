@@ -504,14 +504,6 @@ export default function AgendaView() {
   const later = openTasks
     .filter((t) => t.due_date && t.due_date > thisWeekEndStr)
     .sort(chronoCmp);
-  // Week-kind tasks for the week currently on screen — shown once, as a
-  // banner across the whole week, rather than repeated in every day column.
-  const weekLongTasks =
-    mode === "week"
-      ? openTasks
-          .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === toISODate(strip[0]))
-          .sort(taskOrderCmp)
-      : [];
   const unscheduled = openTasks
     .filter((t) => !t.due_date)
     .sort(taskOrderCmp);
@@ -722,14 +714,24 @@ export default function AgendaView() {
     // only living in the sidebar's "Overdue" bucket — matches how most
     // day-view agenda apps surface anything still open, sorted oldest-due
     // first via chronoCmp so carried-over items lead ahead of today's own.
-    const dayTasks = openTasks
+    const dayOnlyTasks = openTasks
       .filter((t) => {
-        if ((t.due_kind ?? "day") === "week") return mode === "day" && t.due_date === dayWeekStart;
+        if ((t.due_kind ?? "day") === "week") return false;
         if (!t.due_date) return false;
         if (mode === "day" && isToday) return t.due_date <= dayStr;
         return t.due_date === dayStr;
       })
       .sort(chronoCmp);
+    // Week-kind tasks aren't tied to one specific day — they show on every
+    // day of their week (in both day and week mode, so the two behave the
+    // same), but always after that day's own tasks. Sorting them chrono-
+    // logically by due_date (the week's Sunday, always the earliest date in
+    // view) used to put them first and let them dominate the list; they now
+    // sit at the bottom, in manual/priority order like an unscheduled task.
+    const weekKindTasks = openTasks
+      .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === dayWeekStart)
+      .sort(taskOrderCmp);
+    const dayTasks = [...dayOnlyTasks, ...weekKindTasks];
     const daySharedEvents =
       mode === "day"
         ? sharedEvents
@@ -1158,18 +1160,6 @@ export default function AgendaView() {
         >
           {mode === "week" ? (
             <>
-              {weekLongTasks.length > 0 && (
-                <div className="border-b border-txt3/10 px-4 pb-3 pt-4 md:px-6 md:pt-6">
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-txt3">
-                    This week
-                  </p>
-                  <div className="divide-y divide-txt3/10 rounded-lg border border-txt3/10">
-                    {weekLongTasks.map((t) => (
-                      <TaskRow key={t.id} t={t} list={weekLongTasks} />
-                    ))}
-                  </div>
-                </div>
-              )}
               {/* mobile: stays a vertical, one-day-at-a-time list */}
               <div className="mx-auto max-w-3xl divide-y divide-txt3/10 p-4 md:hidden">
                 {days.map((day) => renderDayCell(day, false))}
