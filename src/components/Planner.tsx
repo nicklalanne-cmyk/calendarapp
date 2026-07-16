@@ -325,13 +325,21 @@ export default function Planner() {
   };
 
   const deleteTask = async (t: Task) => {
+    // Deleting a parent used to leave its subtasks behind, still pointing at
+    // a now-deleted parent_id — invisible and unreachable in every view,
+    // since both TaskList and AgendaView only render subtasks nested under
+    // a visible parent. Cascade the soft-delete (and the Undo) to them too.
+    // `tasks` is already scoped to non-deleted rows by the load query, so no
+    // extra deleted_at check is needed here.
+    const childIds = tasks.filter((x) => x.parent_id === t.id).map((x) => x.id);
+    const idsToDelete = [t.id, ...childIds];
     // Optimistic removal — don't make the user wait to see it disappear.
-    setTasks((cur) => cur.filter((x) => x.id !== t.id));
+    setTasks((cur) => cur.filter((x) => !idsToDelete.includes(x.id)));
     // Tasks are Cadence-native: nothing to remove from Google.
     const { error } = await supabase
       .from("tasks")
       .update({ deleted_at: new Date().toISOString() })
-      .eq("id", t.id);
+      .in("id", idsToDelete);
     if (error) {
       loadTasks();
       return toast(error.message, "error");
@@ -339,20 +347,25 @@ export default function Planner() {
 
     loadTasks();
 
-    toast(`Deleted “${t.title}”`, {
-      action: {
-        label: "Undo",
-        run: async () => {
-          const { error: e } = await supabase
-            .from("tasks")
-            .update({ deleted_at: null })
-            .eq("id", t.id);
-          if (e) return toast(e.message, "error");
-          toast("Restored");
-          loadTasks();
+    toast(
+      childIds.length > 0
+        ? `Deleted “${t.title}” and ${childIds.length} subtask${childIds.length === 1 ? "" : "s"}`
+        : `Deleted “${t.title}”`,
+      {
+        action: {
+          label: "Undo",
+          run: async () => {
+            const { error: e } = await supabase
+              .from("tasks")
+              .update({ deleted_at: null })
+              .in("id", idsToDelete);
+            if (e) return toast(e.message, "error");
+            toast("Restored");
+            loadTasks();
+          },
         },
-      },
-    });
+      }
+    );
   };
 
   const addFollowUp = async (

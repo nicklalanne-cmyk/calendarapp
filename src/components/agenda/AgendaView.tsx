@@ -287,16 +287,42 @@ export default function AgendaView() {
   };
 
   const deleteTask = async (t: Task) => {
-    setTasks((cur) => cur.filter((x) => x.id !== t.id));
+    // Deleting a parent used to leave its subtasks behind, still pointing at
+    // a now-deleted parent_id — invisible and unreachable in every view,
+    // since both AgendaView and TaskList only render subtasks nested under
+    // a visible parent. Cascade the soft-delete (and the Undo) to them too.
+    // `tasks` is already scoped to non-deleted rows by the load query, so no
+    // extra deleted_at check is needed here.
+    const childIds = tasks.filter((x) => x.parent_id === t.id).map((x) => x.id);
+    const idsToDelete = [t.id, ...childIds];
+    setTasks((cur) => cur.filter((x) => !idsToDelete.includes(x.id)));
     const { error } = await supabase
       .from("tasks")
       .update({ deleted_at: new Date().toISOString() })
-      .eq("id", t.id);
+      .in("id", idsToDelete);
     if (error) {
       load(true);
       return toast(error.message, "error");
     }
-    toast(`Deleted "${t.title}"`);
+    toast(
+      childIds.length > 0
+        ? `Deleted "${t.title}" and ${childIds.length} subtask${childIds.length === 1 ? "" : "s"}`
+        : `Deleted "${t.title}"`,
+      {
+        action: {
+          label: "Undo",
+          run: async () => {
+            const { error: e } = await supabase
+              .from("tasks")
+              .update({ deleted_at: null })
+              .in("id", idsToDelete);
+            if (e) return toast(e.message, "error");
+            toast("Restored");
+            load(true);
+          },
+        },
+      }
+    );
     load(true);
   };
 
@@ -512,6 +538,18 @@ export default function AgendaView() {
   const unscheduled = openTasks
     .filter((t) => !t.due_date)
     .sort(taskOrderCmp);
+  // Week-kind tasks for the week currently on screen — the desktop 7-column
+  // grid shows these once, in a banner above the columns, rather than
+  // repeating the same task in every column (renderDayCell's `horizontal`
+  // param, true only for that desktop grid, skips them from the per-day
+  // list for exactly this reason). Mobile has no room for a separate
+  // banner — there it shows inline in each day cell, same as day view.
+  const weekLongTasks =
+    mode === "week"
+      ? openTasks
+          .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === toISODate(strip[0]))
+          .sort(taskOrderCmp)
+      : [];
 
   // Drag a task onto another task row to reorder it — picks a sort_order value
   // that sits between the two rows it lands between (in the *effective* order,
@@ -728,14 +766,21 @@ export default function AgendaView() {
       })
       .sort(chronoCmp);
     // Week-kind tasks aren't tied to one specific day — they show on every
-    // day of their week (in both day and week mode, so the two behave the
-    // same), but always after that day's own tasks. Sorting them chrono-
-    // logically by due_date (the week's Sunday, always the earliest date in
-    // view) used to put them first and let them dominate the list; they now
-    // sit at the bottom, in manual/priority order like an unscheduled task.
-    const weekKindTasks = openTasks
-      .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === dayWeekStart)
-      .sort(taskOrderCmp);
+    // day of their week (in day mode, and in mobile's stacked week list, so
+    // those two behave the same), but always after that day's own tasks.
+    // Sorting them chronologically by due_date (the week's Sunday, always
+    // the earliest date in view) used to put them first and let them
+    // dominate the list; they now sit at the bottom, in manual/priority
+    // order like an unscheduled task. The desktop 7-column week grid
+    // (`horizontal`) skips them here entirely — it shows them once, above
+    // the columns, via `weekLongTasks` — so they aren't shown once per
+    // column on top of the per-day list.
+    const weekKindTasks =
+      horizontal && mode === "week"
+        ? []
+        : openTasks
+            .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === dayWeekStart)
+            .sort(taskOrderCmp);
     const dayTasks = [...dayOnlyTasks, ...weekKindTasks];
     const daySharedEvents =
       mode === "day"
@@ -1169,6 +1214,21 @@ export default function AgendaView() {
               <div className="mx-auto max-w-3xl divide-y divide-txt3/10 p-4 md:hidden">
                 {days.map((day) => renderDayCell(day, false))}
               </div>
+              {/* desktop only: week-kind tasks shown once, above the 7-column
+                  grid, instead of repeating in every column (see weekLongTasks
+                  above and the `horizontal` skip in renderDayCell). */}
+              {weekLongTasks.length > 0 && (
+                <div className="hidden border-b border-txt3/10 px-4 pb-3 pt-4 md:block md:px-6 md:pt-6">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-txt3">
+                    This week
+                  </p>
+                  <div className="divide-y divide-txt3/10 rounded-lg border border-txt3/10">
+                    {weekLongTasks.map((t) => (
+                      <TaskRow key={t.id} t={t} list={weekLongTasks} />
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* desktop: all 7 days fit on screen at once, no horizontal scrolling —
                   an equal-fraction grid with the compact/shrunk text in TaskRow and
                   renderDayCell (see `compact`/`horizontal` above) so narrow columns
