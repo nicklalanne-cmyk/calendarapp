@@ -240,6 +240,7 @@ export async function runActions(
           project: a.project ?? null,
           tags: a.tag ? [a.tag] : undefined,
           shared: false,
+          ...(userId ? { user_id: userId } : {}),
         });
         if (error) throw new Error(error.message);
       } else if (a.type === "update_item") {
@@ -274,13 +275,13 @@ export async function runActions(
         const body = fillTemplate(a.body || "", ctx.title);
         if (a.appendToDaily) {
           const todayStr = toISODate(new Date());
-          const { data: existing } = await supabase
+          let query = supabase
             .from("notes")
             .select("id, body")
             .eq("note_date", todayStr)
-            .is("deleted_at", null)
-            .limit(1)
-            .maybeSingle();
+            .is("deleted_at", null);
+          if (userId) query = query.eq("user_id", userId);
+          const { data: existing } = await query.limit(1).maybeSingle();
           if (existing) {
             const prevBody = (existing as { body?: string | null }).body ?? "";
             const { error } = await supabase
@@ -289,11 +290,15 @@ export async function runActions(
               .eq("id", (existing as { id: string }).id);
             if (error) throw new Error(error.message);
           } else {
-            const { error } = await supabase.from("notes").insert({ title, body, note_date: todayStr });
+            const { error } = await supabase
+              .from("notes")
+              .insert({ title, body, note_date: todayStr, ...(userId ? { user_id: userId } : {}) });
             if (error) throw new Error(error.message);
           }
         } else {
-          const { error } = await supabase.from("notes").insert({ title, body });
+          const { error } = await supabase
+            .from("notes")
+            .insert({ title, body, ...(userId ? { user_id: userId } : {}) });
           if (error) throw new Error(error.message);
         }
       }

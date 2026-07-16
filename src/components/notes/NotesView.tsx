@@ -244,6 +244,7 @@ export default function NotesView() {
       .from("notes")
       .select("*")
       .eq("note_date", todayStr)
+      .is("deleted_at", null)
       .limit(1);
     if (existing && existing.length) {
       select(existing[0] as Note);
