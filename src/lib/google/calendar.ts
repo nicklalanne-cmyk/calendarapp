@@ -73,6 +73,7 @@ export function mapEvent(e: GEvent, ctx: EventContext): CalendarEvent {
     meetingLink: meetingLinkOf(e),
     htmlLink: e.htmlLink ?? null,
     recurring: Boolean(e.recurringEventId || (e.recurrence && e.recurrence.length > 0)),
+    recurringEventId: e.recurringEventId ?? null,
     accountId: ctx.accountId,
     accountEmail: ctx.accountEmail,
     calendarId: ctx.calendarId,

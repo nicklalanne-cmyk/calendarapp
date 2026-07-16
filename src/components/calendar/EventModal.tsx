@@ -25,10 +25,17 @@ export type EventDraft = {
   meetingLink?: string | null;
   recurrence?: string[] | null;
   recurring?: boolean;
+  /** The master event's id, present when this draft is one expanded instance
+   * of a recurring event. Needed to target the whole series on edit/delete. */
+  recurringEventId?: string | null;
   /** All-day (or multi-day) event — `start`/`end` are still Date objects at
    * local midnight, but no time-of-day is meaningful. `end` follows Google's
    * exclusive-end-date convention (the day AFTER the last inclusive day). */
   allDay?: boolean;
+  /** For a recurring instance: whether a save/delete should apply to just
+   * this occurrence or the whole series. Only meaningful when
+   * recurringEventId is set; defaults to "occurrence" (today's behavior). */
+  scope?: "occurrence" | "series";
 };
 
 const RRULE: Record<string, string[] | null> = {
@@ -72,7 +79,7 @@ export default function EventModal({
 }: {
   draft: EventDraft;
   onSave: (d: EventDraft) => void;
-  onDelete?: () => void;
+  onDelete?: (scope?: "occurrence" | "series") => void;
   onClose: () => void;
   /** Creates a task from this event's title/time and closes the modal. */
   onConvertToTask?: (d: EventDraft) => void;
@@ -91,6 +98,8 @@ export default function EventModal({
   const [location, setLocation] = useState(draft.location ?? "");
   const [description, setDescription] = useState(draft.description ?? "");
   const [repeat, setRepeat] = useState<string>("none");
+  const [scope, setScope] = useState<"occurrence" | "series">("occurrence");
+  const canPickScope = Boolean(draft.recurring && draft.recurringEventId);
   const [allDay, setAllDayState] = useState(!!draft.allDay);
   // Inclusive last day for an all-day event, shown to the user. draft.end
   // follows Google's exclusive-end-date convention (one day past the last
@@ -261,6 +270,8 @@ export default function EventModal({
       location: location.trim(),
       description: description.trim(),
       recurrence: draft.id ? undefined : RRULE[repeat],
+      recurringEventId: draft.recurringEventId,
+      scope: canPickScope ? scope : undefined,
     });
   };
 
@@ -357,13 +368,29 @@ export default function EventModal({
               <p className="mb-4 text-sm text-txt3">No other details.</p>
             )}
 
+            {canPickScope && (
+              <div className="mb-3 flex items-center gap-1.5 text-xs text-txt3">
+                <Repeat className="h-3.5 w-3.5" />
+                <select
+                  value={scope}
+                  onChange={(e) => setScope(e.target.value as "occurrence" | "series")}
+                  className="rounded-md border border-border bg-bg px-1.5 py-1 text-xs text-txt2"
+                >
+                  <option value="occurrence">This event only</option>
+                  <option value="series">The whole series</option>
+                </select>
+                <span>applies to Delete and Edit below</span>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               {draft.id && onDelete ? (
                 <button
-                  onClick={() => onDelete()}
+                  onClick={() => onDelete(canPickScope ? scope : undefined)}
                   className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-3 text-sm text-danger active:bg-surface2 md:px-3 md:py-2 md:hover:bg-surface"
                 >
-                  <Trash2 className="h-4 w-4" /> Delete
+                  <Trash2 className="h-4 w-4" />
+                  {canPickScope && scope === "series" ? "Delete series" : "Delete"}
                 </button>
               ) : null}
               {draft.id && onConvertToTask && (
@@ -415,6 +442,21 @@ export default function EventModal({
           placeholder="Title"
           className="mb-3 w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-base outline-none focus:border-accent md:py-2 md:text-sm"
         />
+
+        {canPickScope && (
+          <div className="mb-3 flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-txt3">
+            <Repeat className="h-3.5 w-3.5 shrink-0" />
+            <span>This event repeats — save changes to</span>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value as "occurrence" | "series")}
+              className="ml-auto rounded-md border border-border bg-bg px-1.5 py-1 text-xs text-txt2"
+            >
+              <option value="occurrence">This event only</option>
+              <option value="series">The whole series</option>
+            </select>
+          </div>
+        )}
 
         {!draft.id && cals.length > 1 && (
           <div className="mb-3 flex items-center gap-2">

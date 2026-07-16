@@ -640,6 +640,7 @@ export default function Planner() {
       attendees: ev.attendees,
       meetingLink: ev.meetingLink,
       recurring: ev.recurring,
+      recurringEventId: ev.recurringEventId,
       allDay: ev.allDay,
     });
 
@@ -657,10 +658,14 @@ export default function Planner() {
       description: d.description ?? null,
       recurrence: d.recurrence ?? null,
     });
+    // Editing "the whole series" targets the master recurring event's id
+    // instead of this expanded instance's id — that's what makes a PATCH
+    // affect every occurrence rather than just the one that was opened.
+    const targetId = d.scope === "series" && d.recurringEventId ? d.recurringEventId : d.id;
     const res =
       d.id && d.accountId
         ? await fetch(
-            `/api/google/events/${d.id}?${new URLSearchParams({
+            `/api/google/events/${targetId}?${new URLSearchParams({
               accountId: d.accountId,
               calendarId: d.calendarId ?? "primary",
             }).toString()}`,
@@ -680,21 +685,24 @@ export default function Planner() {
   // task deletion — the modal closes and the event disappears from view
   // immediately, but the real DELETE call is held for a few seconds behind a
   // cancellable timer. Undo just cancels the timer; nothing was ever sent.
-  const deleteEvent = (d: EventDraft) => {
+  const deleteEvent = (d: EventDraft, scope?: "occurrence" | "series") => {
     setDraft(null);
     if (d.id) setEvents((cur) => cur.filter((e) => e.id !== d.id));
     if (!d.id || !d.accountId) return;
-    const { id, accountId, calendarId } = d;
+    // Deleting "the whole series" has to target the master event's id —
+    // deleting just this instance's id only cancels that one occurrence.
+    const targetId = scope === "series" && d.recurringEventId ? d.recurringEventId : d.id;
+    const { accountId, calendarId } = d;
     let cancelled = false;
     const timer = setTimeout(async () => {
       if (cancelled) return;
       const q = new URLSearchParams({ accountId, calendarId: calendarId ?? "primary" });
-      const res = await fetch(`/api/google/events/${id}?${q.toString()}`, { method: "DELETE" });
+      const res = await fetch(`/api/google/events/${targetId}?${q.toString()}`, { method: "DELETE" });
       if (!res.ok) toast("Couldn't delete the event", "error");
       clearEventsCache();
       loadEvents(true);
     }, 6000);
-    toast(`Deleted "${d.title || "event"}"`, {
+    toast(`Deleted "${d.title || "event"}"${scope === "series" ? " (whole series)" : ""}`, {
       action: {
         label: "Undo",
         run: () => {
@@ -1045,7 +1053,7 @@ export default function Planner() {
         <EventModal
           draft={draft}
           onSave={saveEvent}
-          onDelete={draft.id ? () => deleteEvent(draft) : undefined}
+          onDelete={draft.id ? (scope) => deleteEvent(draft, scope) : undefined}
           onConvertToTask={convertEventToTask}
           onAddFollowUp={(d, dueDate, dueKind) => addFollowUp({ title: d.title }, dueDate, dueKind)}
           onClose={() => setDraft(null)}

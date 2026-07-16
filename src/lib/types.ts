@@ -152,6 +152,11 @@ export type CalendarEvent = {
   meetingLink?: string | null;
   htmlLink?: string | null;
   recurring?: boolean;
+  /** Set when this is one expanded instance of a recurring event — the id of
+   * the *master* event, which PATCH/DELETE must target to affect the whole
+   * series instead of just this occurrence. Absent for non-recurring events
+   * and for the master event itself (if ever fetched directly). */
+  recurringEventId?: string | null;
   accountId: string;
   accountEmail: string;
   calendarId: string;
