@@ -391,6 +391,64 @@ export default function Planner() {
     );
   };
 
+  // Multi-select in TaskList — complete/delete/reschedule several tasks in
+  // one action instead of one at a time. Doesn't cascade to subtasks or spin
+  // off next-occurrence rows for completed recurring tasks the way the
+  // single-task toggleTask/deleteTask do — a bulk selection is an explicit,
+  // reviewed batch, so the simpler one-shot behavior is easier to reason
+  // about than surprise side effects fired N times.
+  const bulkComplete = async (ids: string[]) => {
+    setTasks((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, is_done: true } : x)));
+    const { error } = await supabase.from("tasks").update({ is_done: true }).in("id", ids);
+    if (error) {
+      toast(error.message, "error");
+      loadTasks();
+      return;
+    }
+    toast(`Completed ${ids.length} task${ids.length === 1 ? "" : "s"}`);
+    loadTasks();
+  };
+
+  const bulkDelete = async (ids: string[]) => {
+    setTasks((cur) => cur.filter((x) => !ids.includes(x.id)));
+    const { error } = await supabase
+      .from("tasks")
+      .update({ deleted_at: new Date().toISOString() })
+      .in("id", ids);
+    if (error) {
+      toast(error.message, "error");
+      loadTasks();
+      return;
+    }
+    toast(`Deleted ${ids.length} task${ids.length === 1 ? "" : "s"}`, {
+      action: {
+        label: "Undo",
+        run: async () => {
+          const { error: e } = await supabase.from("tasks").update({ deleted_at: null }).in("id", ids);
+          if (e) return toast(e.message, "error");
+          toast("Restored");
+          loadTasks();
+        },
+      },
+    });
+    loadTasks();
+  };
+
+  const bulkSetDueDate = async (ids: string[], dueDate: string) => {
+    setTasks((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, due_date: dueDate, due_kind: "day" } : x)));
+    const { error } = await supabase
+      .from("tasks")
+      .update({ due_date: dueDate, due_kind: "day" })
+      .in("id", ids);
+    if (error) {
+      toast(error.message, "error");
+      loadTasks();
+      return;
+    }
+    toast(`Rescheduled ${ids.length} task${ids.length === 1 ? "" : "s"}`);
+    loadTasks();
+  };
+
   const addFollowUp = async (
     source: { title: string; project?: string | null },
     dueDate: string,
@@ -783,6 +841,9 @@ export default function Planner() {
           onOpenTask={(t) => setEditing(t)}
           onNewTask={() => setCreating(true)}
           onSchedule={(t) => setScheduling(t)}
+          onBulkComplete={bulkComplete}
+          onBulkDelete={bulkDelete}
+          onBulkSetDueDate={bulkSetDueDate}
         />
       </div>
       <div className="px-4 pb-4">
