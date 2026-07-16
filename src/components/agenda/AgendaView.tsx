@@ -525,15 +525,37 @@ export default function AgendaView() {
   // These buckets are anchored to the real, current-moment "today" — not to
   // whichever day/week the main view happens to be showing — so "Due today"
   // never mislabels a future day's tasks just because you navigated forward.
+  // Week-kind tasks (due_kind === "week") store their due_date as the Monday
+  // of the target week, not a single day — so comparing that raw date
+  // against todayStr/thisWeekEndStr the same way as day-kind tasks
+  // misclassifies them (e.g. a week-kind task for the *current* week reads
+  // as "overdue" the moment Tuesday rolls around, and a future week's task
+  // can wrongly land in "this week"). Bucket using the week's actual span,
+  // matching TaskList.tsx's isWeek/weekEnd logic.
+  const isWeekKind = (t: Task) => (t.due_kind ?? "day") === "week";
+  const weekEnd = (t: Task) => {
+    const d = new Date(`${t.due_date}T00:00:00`);
+    d.setDate(d.getDate() + 6);
+    return toISODate(d);
+  };
+  const thisWeekStartStr = toISODate(startOfWeek(new Date()));
   const overdue = openTasks
-    .filter((t) => t.due_date && t.due_date < todayStr)
+    .filter((t) => t.due_date && (isWeekKind(t) ? weekEnd(t) < todayStr : t.due_date < todayStr))
     .sort(chronoCmp);
-  const dueToday = openTasks.filter((t) => t.due_date === todayStr).sort(taskOrderCmp);
+  const dueToday = openTasks
+    .filter((t) => !isWeekKind(t) && t.due_date === todayStr)
+    .sort(taskOrderCmp);
   const dueThisWeek = openTasks
-    .filter((t) => t.due_date && t.due_date > todayStr && t.due_date <= thisWeekEndStr)
+    .filter((t) =>
+      isWeekKind(t)
+        ? t.due_date === thisWeekStartStr && weekEnd(t) >= todayStr
+        : t.due_date && t.due_date > todayStr && t.due_date <= thisWeekEndStr
+    )
     .sort(chronoCmp);
   const later = openTasks
-    .filter((t) => t.due_date && t.due_date > thisWeekEndStr)
+    .filter((t) =>
+      isWeekKind(t) ? t.due_date && t.due_date > thisWeekStartStr : t.due_date && t.due_date > thisWeekEndStr
+    )
     .sort(chronoCmp);
   const unscheduled = openTasks
     .filter((t) => !t.due_date)
