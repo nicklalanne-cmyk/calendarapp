@@ -262,14 +262,36 @@ export default function NotebookEditor({ notebookId }: { notebookId: string }) {
     setActiveId(page.id);
   };
 
-  const deletePage = async (p: NotebookPage) => {
+  // notebook_pages has no deleted_at column, so hold the real delete behind
+  // a cancellable timer (same pattern as automations/notebook folders) rather
+  // than a blocking window.confirm() with no way back.
+  const deletePage = (p: NotebookPage) => {
     if (pages.length <= 1) return toast("A notebook needs at least one page", "error");
-    if (!confirm("Delete this page?")) return;
+    const idx = pages.findIndex((x) => x.id === p.id);
     const remaining = pages.filter((x) => x.id !== p.id);
     setPages(remaining);
     if (activeId === p.id) setActiveId(remaining[0]?.id ?? null);
-    const { error } = await supabase.from("notebook_pages").delete().eq("id", p.id);
-    if (error) toast(error.message, "error");
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      const { error } = await supabase.from("notebook_pages").delete().eq("id", p.id);
+      if (error) toast(error.message, "error");
+    }, 6000);
+    toast("Deleted page", {
+      action: {
+        label: "Undo",
+        run: () => {
+          cancelled = true;
+          clearTimeout(timer);
+          setPages((prev) => {
+            const next = [...prev];
+            next.splice(Math.min(idx, next.length), 0, p);
+            return next;
+          });
+          setActiveId(p.id);
+        },
+      },
+    });
   };
 
   const reorder = async (fromId: string, toId: string) => {

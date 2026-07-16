@@ -129,7 +129,6 @@ export default function NotebooksView() {
 
   const remove = async (n: Notebook, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Delete "${n.title}"? This can't be undone.`)) return;
     setNotebooks((prev) => prev.filter((x) => x.id !== n.id));
     const { error } = await supabase
       .from("notebooks")
@@ -138,7 +137,21 @@ export default function NotebooksView() {
     if (error) {
       toast(error.message, "error");
       load();
+      return;
     }
+    toast(`Deleted "${n.title}"`, {
+      action: {
+        label: "Undo",
+        run: async () => {
+          const { error: undoErr } = await supabase
+            .from("notebooks")
+            .update({ deleted_at: null })
+            .eq("id", n.id);
+          if (undoErr) return toast(undoErr.message, "error");
+          load();
+        },
+      },
+    });
   };
 
   const moveToFolder = async (n: Notebook, folderId: string | null, e: React.MouseEvent) => {
@@ -167,15 +180,36 @@ export default function NotebooksView() {
     setAddingFolder(false);
   };
 
-  const deleteFolder = async (f: NotebookFolder) => {
-    if (!confirm(`Delete folder "${f.name}"? Notebooks inside move back to Unfiled.`)) return;
+  // notebook_folders has no deleted_at column, so — same as automations —
+  // hold the real delete for a few seconds behind a cancellable timer instead
+  // of either blocking on window.confirm() or deleting with no way back.
+  const deleteFolder = (f: NotebookFolder) => {
+    const idx = folders.findIndex((x) => x.id === f.id);
     setFolders((prev) => prev.filter((x) => x.id !== f.id));
     if (folderFilter === f.id) setFolderFilter("all");
-    const { error } = await supabase.from("notebook_folders").delete().eq("id", f.id);
-    if (error) {
-      toast(error.message, "error");
-      load();
-    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      const { error } = await supabase.from("notebook_folders").delete().eq("id", f.id);
+      if (error) {
+        toast(error.message, "error");
+        load();
+      }
+    }, 6000);
+    toast(`Deleted folder "${f.name}"`, {
+      action: {
+        label: "Undo",
+        run: () => {
+          cancelled = true;
+          clearTimeout(timer);
+          setFolders((prev) => {
+            const next = [...prev];
+            next.splice(Math.min(idx, next.length), 0, f);
+            return next;
+          });
+        },
+      },
+    });
   };
 
   return (

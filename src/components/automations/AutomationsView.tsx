@@ -111,13 +111,38 @@ export default function AutomationsView() {
     }
   };
 
-  const remove = async (a: Automation) => {
+  // Automations have no deleted_at column (unlike tasks/notes/notebooks), so
+  // a real soft-delete-then-restore isn't available here. Instead: remove it
+  // from view immediately, but hold off on the actual delete for a few
+  // seconds so "Undo" has something to cancel — matching the toast-with-Undo
+  // pattern used everywhere else in the app instead of deleting instantly
+  // with no way back.
+  const remove = (a: Automation) => {
+    const idx = rows.findIndex((x) => x.id === a.id);
     setRows((cur) => cur.filter((x) => x.id !== a.id));
-    const { error } = await supabase.from("automations").delete().eq("id", a.id);
-    if (error) {
-      toast(error.message, "error");
-      load();
-    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      const { error } = await supabase.from("automations").delete().eq("id", a.id);
+      if (error) {
+        toast(error.message, "error");
+        load();
+      }
+    }, 6000);
+    toast(`Deleted "${a.name}"`, {
+      action: {
+        label: "Undo",
+        run: () => {
+          cancelled = true;
+          clearTimeout(timer);
+          setRows((cur) => {
+            const next = [...cur];
+            next.splice(Math.min(idx, next.length), 0, a);
+            return next;
+          });
+        },
+      },
+    });
   };
 
   return (

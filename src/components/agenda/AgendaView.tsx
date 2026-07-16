@@ -423,15 +423,35 @@ export default function AgendaView() {
     load(true);
   };
 
-  const deleteEvent = async (d: EventDraft) => {
-    if (d.id && d.accountId) {
-      const q = new URLSearchParams({ accountId: d.accountId, calendarId: d.calendarId ?? "primary" });
-      const res = await fetch(`/api/google/events/${d.id}?${q.toString()}`, { method: "DELETE" });
-      if (!res.ok) toast("Couldn't delete the event", "error");
-    }
+  // Same deferred-delete-with-Undo pattern as Planner.tsx: Google events have
+  // no soft-delete/undo on Google's side, so the real DELETE call is held
+  // behind a cancellable timer instead of firing the instant the button is
+  // clicked, giving Undo something real to cancel.
+  const deleteEvent = (d: EventDraft) => {
     setDraft(null);
-    clearEventsCache();
-    load(true);
+    if (d.id) setEvents((cur) => cur.filter((e) => e.id !== d.id));
+    if (!d.id || !d.accountId) return;
+    const { id, accountId, calendarId } = d;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      const q = new URLSearchParams({ accountId, calendarId: calendarId ?? "primary" });
+      const res = await fetch(`/api/google/events/${id}?${q.toString()}`, { method: "DELETE" });
+      if (!res.ok) toast("Couldn't delete the event", "error");
+      clearEventsCache();
+      load(true);
+    }, 6000);
+    toast(`Deleted "${d.title || "event"}"`, {
+      action: {
+        label: "Undo",
+        run: () => {
+          cancelled = true;
+          clearTimeout(timer);
+          clearEventsCache();
+          load(true);
+        },
+      },
+    });
   };
 
   const convertEventToTask = async (d: EventDraft) => {

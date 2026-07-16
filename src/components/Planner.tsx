@@ -612,18 +612,36 @@ export default function Planner() {
     loadEvents(true);
   };
 
-  const deleteEvent = async (d: EventDraft) => {
-    if (d.id && d.accountId) {
-      const q = new URLSearchParams({
-        accountId: d.accountId,
-        calendarId: d.calendarId ?? "primary",
-      });
-      const res = await fetch(`/api/google/events/${d.id}?${q.toString()}`, { method: "DELETE" });
-      if (!res.ok) toast("Couldn't delete the event", "error");
-    }
+  // Google events don't come back once actually deleted (no soft-delete/undo
+  // on Google's side), so — to give this the same toast-with-Undo feel as
+  // task deletion — the modal closes and the event disappears from view
+  // immediately, but the real DELETE call is held for a few seconds behind a
+  // cancellable timer. Undo just cancels the timer; nothing was ever sent.
+  const deleteEvent = (d: EventDraft) => {
     setDraft(null);
-    clearEventsCache();
-    loadEvents(true);
+    if (d.id) setEvents((cur) => cur.filter((e) => e.id !== d.id));
+    if (!d.id || !d.accountId) return;
+    const { id, accountId, calendarId } = d;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      const q = new URLSearchParams({ accountId, calendarId: calendarId ?? "primary" });
+      const res = await fetch(`/api/google/events/${id}?${q.toString()}`, { method: "DELETE" });
+      if (!res.ok) toast("Couldn't delete the event", "error");
+      clearEventsCache();
+      loadEvents(true);
+    }, 6000);
+    toast(`Deleted "${d.title || "event"}"`, {
+      action: {
+        label: "Undo",
+        run: () => {
+          cancelled = true;
+          clearTimeout(timer);
+          clearEventsCache();
+          loadEvents(true);
+        },
+      },
+    });
   };
 
   const patchEvent = async (ev: CalendarEvent, payload: Record<string, string>) => {
