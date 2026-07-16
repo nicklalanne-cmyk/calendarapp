@@ -36,6 +36,7 @@ export default function TaskList({
 }) {
   const [value, setValue] = useState("");
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const todayStr = format(new Date(), "yyyy-MM-dd");
 
   // Which section headers are collapsed, persisted across visits — mirrors
@@ -75,9 +76,17 @@ export default function TaskList({
     new Set(tasks.filter((t) => !t.parent_id && t.project).map((t) => t.project as string))
   ).sort();
 
+  const searchQ = searchQuery.trim().toLowerCase();
   const top = tasks
     .filter((t) => !t.parent_id)
-    .filter((t) => (projectFilter ? t.project === projectFilter : true));
+    .filter((t) => (projectFilter ? t.project === projectFilter : true))
+    .filter((t) =>
+      searchQ
+        ? t.title.toLowerCase().includes(searchQ) ||
+          (t.notes ?? "").toLowerCase().includes(searchQ) ||
+          (t.tags ?? []).some((tag) => tag.toLowerCase().includes(searchQ))
+        : true
+    );
 
   const thisWeekStart = toISODate(startOfWeek(new Date()));
 
@@ -174,6 +183,13 @@ export default function TaskList({
           <SlidersHorizontal className="h-[18px] w-[18px] md:h-3.5 md:w-3.5" />
         </button>
       </div>
+
+      <input
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder="Search tasks…"
+        className="mb-2 w-full rounded-lg border border-border bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent md:py-1.5"
+      />
 
       {projects.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1">

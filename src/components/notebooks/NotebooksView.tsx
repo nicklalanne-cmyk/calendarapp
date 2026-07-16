@@ -32,13 +32,19 @@ export default function NotebooksView() {
   const [addingFolder, setAddingFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [moveMenuFor, setMoveMenuFor] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
   }, [supabase]);
 
-  const visible =
-    folderFilter === "all"
+  const searching = searchQuery.trim().length > 0;
+  // A title search naturally wants to look across every folder at once, not
+  // just whichever one happens to be selected — so it bypasses the folder
+  // filter entirely rather than requiring "All" to be picked first.
+  const visible = searching
+    ? notebooks.filter((n) => n.title.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : folderFilter === "all"
       ? notebooks
       : notebooks.filter((n) => (folderFilter === null ? !n.folder_id : n.folder_id === folderFilter));
   const pinned = visible.filter((n) => n.pinned_at);
@@ -225,7 +231,14 @@ export default function NotebooksView() {
           </button>
         </div>
 
-        <div className="mb-5 flex flex-wrap items-center gap-1.5">
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search notebooks…"
+          className="mb-3 w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+        />
+
+        <div className={clsx("mb-5 flex flex-wrap items-center gap-1.5", searching && "opacity-40")}>
           <FolderChip
             active={folderFilter === "all"}
             onClick={() => setFolderFilter("all")}

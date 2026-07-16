@@ -1,7 +1,7 @@
 "use client";
 import clsx from "clsx";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import LinkPicker, { type NoteLink } from "@/components/notes/LinkPicker";
@@ -65,6 +65,14 @@ export default function NotesView() {
   const [transcribing, setTranscribing] = useState(false);
   const { settings } = useSettings();
   const inkDebouncer = useRef(makeDebouncer(900)).current;
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredNotes = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return notes;
+    return notes.filter(
+      (n) => n.title?.toLowerCase().includes(q) || n.body?.toLowerCase().includes(q)
+    );
+  }, [notes, searchQuery]);
   const [linkedTask, setLinkedTask] = useState<Task | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -699,14 +707,56 @@ export default function NotesView() {
             </button>
           </div>
         </div>
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search notes…"
+          className="mb-2 w-full rounded-lg border border-border bg-bg px-2.5 py-2 text-sm outline-none focus:border-accent md:py-1.5"
+        />
         <div className="flex-1 space-y-1 overflow-y-auto">
-          {notes.filter((n) => n.pinned_at).length > 0 && (
+          {searchQuery.trim() ? (
+            filteredNotes.length === 0 ? (
+              <p className="px-2 py-6 text-center text-xs text-txt3">No notes match "{searchQuery}".</p>
+            ) : (
+              filteredNotes.map((n) => (
+                <NoteRow
+                  key={n.id}
+                  note={n}
+                  active={active?.id === n.id}
+                  isOwner={n.user_id === currentUserId}
+                  onSelect={() => select(n)}
+                  onTogglePin={(e) => togglePin(n, e)}
+                  onToggleShare={(e) => toggleShare(n, e)}
+                />
+              ))
+            )
+          ) : (
             <>
-              <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-txt3">
-                <Star className="h-3 w-3" /> Pinned
-              </div>
+              {notes.filter((n) => n.pinned_at).length > 0 && (
+                <>
+                  <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-txt3">
+                    <Star className="h-3 w-3" /> Pinned
+                  </div>
+                  {notes
+                    .filter((n) => n.pinned_at)
+                    .map((n) => (
+                      <NoteRow
+                        key={n.id}
+                        note={n}
+                        active={active?.id === n.id}
+                        isOwner={n.user_id === currentUserId}
+                        onSelect={() => select(n)}
+                        onTogglePin={(e) => togglePin(n, e)}
+                        onToggleShare={(e) => toggleShare(n, e)}
+                      />
+                    ))}
+                  <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-txt3">
+                    All notes
+                  </div>
+                </>
+              )}
               {notes
-                .filter((n) => n.pinned_at)
+                .filter((n) => !n.pinned_at)
                 .map((n) => (
                   <NoteRow
                     key={n.id}
@@ -718,26 +768,10 @@ export default function NotesView() {
                     onToggleShare={(e) => toggleShare(n, e)}
                   />
                 ))}
-              <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-txt3">
-                All notes
-              </div>
+              {notes.length === 0 && (
+                <p className="px-2 py-6 text-center text-xs text-txt3">No notes yet.</p>
+              )}
             </>
-          )}
-          {notes
-            .filter((n) => !n.pinned_at)
-            .map((n) => (
-              <NoteRow
-                key={n.id}
-                note={n}
-                active={active?.id === n.id}
-                isOwner={n.user_id === currentUserId}
-                onSelect={() => select(n)}
-                onTogglePin={(e) => togglePin(n, e)}
-                onToggleShare={(e) => toggleShare(n, e)}
-              />
-            ))}
-          {notes.length === 0 && (
-            <p className="px-2 py-6 text-center text-xs text-txt3">No notes yet.</p>
           )}
         </div>
       </aside>
