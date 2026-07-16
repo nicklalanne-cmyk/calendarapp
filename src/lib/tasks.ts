@@ -96,9 +96,14 @@ function extractRecurrence(input: string): [string | null, string] {
     return [`FREQ=${f};INTERVAL=${n}`, cut(s, everyN.index, everyN[0].length)];
   }
 
-  // "on the 15th of each month" / "every 15th"
+  // "on the 15th of each month" / "every 15th" / "every month on the 15th".
+  // "every <N>th" is unambiguous — "every" already signals recurrence. But a
+  // bare "on the <N>th" (no "every" and no explicit "of the month") is just
+  // an ordinal date — "call mom on the 3rd" means the 3rd of *this* month,
+  // once, not "every 3rd of the month forever". Only treat "on the Nth" as
+  // recurring when it's paired with an explicit month qualifier.
   const md = s.match(
-    /(?:^|\s)(?:on\s+the\s+|every\s+)(\d{1,2})(?:st|nd|rd|th)(?:\s+of\s+(?:the\s+|each\s+|every\s+)?month)?(?=\s|$)/i
+    /(?:^|\s)(?:every\s+|on\s+the\s+(?=\d{1,2}(?:st|nd|rd|th)\s+of\s+))(\d{1,2})(?:st|nd|rd|th)(?:\s+of\s+(?:the\s+|each\s+|every\s+)?month)?(?=\s|$)/i
   );
   if (md && md.index !== undefined) {
     const day = parseInt(md[1], 10);
