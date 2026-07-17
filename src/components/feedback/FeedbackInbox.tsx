@@ -14,7 +14,41 @@ type Item = {
   user_email: string | null;
   created_at: string;
   cleared_at: string | null;
+  image_paths: string[] | null;
 };
+
+// Same cached-signed-URL pattern as FeedbackOverlay's thumbnails and
+// NotebookEditor's resolveImageUrl — feedback-images is a private bucket.
+const imageUrlCache = new Map<string, string>();
+
+function FeedbackThumb({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(imageUrlCache.get(path) ?? null);
+
+  useEffect(() => {
+    if (url) return;
+    let cancelled = false;
+    const supabase = createClient();
+    supabase.storage
+      .from("feedback-images")
+      .createSignedUrl(path, 3600)
+      .then(({ data }) => {
+        if (cancelled || !data?.signedUrl) return;
+        imageUrlCache.set(path, data.signedUrl);
+        setUrl(data.signedUrl);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, url]);
+
+  if (!url) return <div className="h-16 w-16 animate-pulse rounded-lg bg-surface2" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="block h-16 w-16 overflow-hidden rounded-lg border border-border">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="" className="h-full w-full object-cover" />
+    </a>
+  );
+}
 
 export default function FeedbackInbox() {
   const supabase = createClient();
@@ -36,7 +70,7 @@ export default function FeedbackInbox() {
 
     const { data } = await supabase
       .from("feedback")
-      .select("*")
+      .select("id,kind,body,status,user_email,created_at,cleared_at,image_paths")
       .order("created_at", { ascending: false });
     setItems((data as Item[]) ?? []);
     setLoading(false);
@@ -205,6 +239,13 @@ export default function FeedbackInbox() {
                     </li>
                   ))}
                 </ul>
+                {i.image_paths && i.image_paths.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {i.image_paths.map((p) => (
+                      <FeedbackThumb key={p} path={p} />
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

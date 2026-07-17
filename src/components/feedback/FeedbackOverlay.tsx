@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, Lightbulb, Bug, Send, Loader2, CheckCircle2, Clock } from "lucide-react";
+import { X, Lightbulb, Bug, Send, Loader2, CheckCircle2, Clock, Paperclip } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -14,7 +14,13 @@ type Item = {
   body: string;
   status: string;
   created_at: string;
+  image_paths: string[] | null;
 };
+
+// One shared signed-URL cache for feedback photos, same pattern as
+// NotebookEditor's imageUrlCache — thumbnails get requested repeatedly as
+// "your reports" re-renders, and signed URLs are valid for an hour anyway.
+const imageUrlCache = new Map<string, string>();
 
 const BULLET = "• ";
 
@@ -45,16 +51,55 @@ export default function FeedbackOverlay({
   const [text, setText] = useState(BULLET);
   const [busy, setBusy] = useState(false);
   const [mine, setMine] = useState<Item[]>([]);
+  const [attachments, setAttachments] = useState<{ file: File; previewUrl: string }[]>([]);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const loadMine = useCallback(async () => {
     const { data } = await supabase
       .from("feedback")
-      .select("id,kind,body,status,created_at")
+      .select("id,kind,body,status,created_at,image_paths")
       .order("created_at", { ascending: false })
       .limit(30);
     setMine((data as Item[]) ?? []);
   }, [supabase]);
+
+  const addAttachments = (files: File[]) => {
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    if (images.length === 0) return;
+    setAttachments((cur) => [...cur, ...images.map((file) => ({ file, previewUrl: URL.createObjectURL(file) }))]);
+  };
+  const removeAttachment = (previewUrl: string) => {
+    setAttachments((cur) => {
+      const found = cur.find((a) => a.previewUrl === previewUrl);
+      if (found) URL.revokeObjectURL(found.previewUrl);
+      return cur.filter((a) => a.previewUrl !== previewUrl);
+    });
+  };
+
+  // Paste a screenshot/copied image straight into the report — same
+  // clipboardData.items scan NotebookCanvas uses for pasting images onto a
+  // page, just landing in the attachments tray instead of on a canvas.
+  useEffect(() => {
+    if (!open) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        addAttachments(files);
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,16 +119,39 @@ export default function FeedbackOverlay({
     setBusy(true);
 
     const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id;
+
+    // Upload attachments (if any) to the private feedback-images bucket,
+    // path-prefixed by uid the same way notebook-images is, then store just
+    // the storage paths on the row — mirrors NotebookEditor's insertImage.
+    const image_paths: string[] = [];
+    if (uid) {
+      for (const a of attachments) {
+        const path = `${uid}/${Date.now()}-${a.file.name}`;
+        const { error: upErr } = await supabase.storage
+          .from("feedback-images")
+          .upload(path, a.file, { contentType: a.file.type || "image/png" });
+        if (upErr) {
+          setBusy(false);
+          return toast(upErr.message, "error");
+        }
+        image_paths.push(path);
+      }
+    }
+
     const { error } = await supabase.from("feedback").insert({
       kind,
       body,
       user_email: u.user?.email ?? null,
+      image_paths,
     });
 
     setBusy(false);
     if (error) return toast(error.message, "error");
 
     setText(BULLET);
+    attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+    setAttachments([]);
     toast(kind === "bug" ? "Bug reported — thank you" : "Feature request sent — thank you");
     window.dispatchEvent(new CustomEvent("cadence:feedback-changed"));
     loadMine();
@@ -194,17 +262,55 @@ export default function FeedbackOverlay({
             className="w-full resize-y rounded-xl border border-border bg-bg px-3 py-2.5 text-[15px] leading-relaxed outline-none focus:border-accent md:text-sm"
           />
           <p className="mt-1 px-1 text-[11px] text-txt3">
-            Enter starts a new bullet · empty bullet + Enter ends the list · ⌘/Ctrl+Enter sends
+            Enter starts a new bullet · empty bullet + Enter ends the list · ⌘/Ctrl+Enter sends · paste a screenshot to attach it
           </p>
 
-          <button
-            onClick={submit}
-            disabled={busy || !stripBullets(text)}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3 text-sm font-medium text-white transition active:opacity-80 disabled:opacity-40"
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Send
-          </button>
+          {attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {attachments.map((a) => (
+                <div key={a.previewUrl} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={a.previewUrl} alt="" className="h-full w-full object-cover" />
+                  <button
+                    onClick={() => removeAttachment(a.previewUrl)}
+                    className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) addAttachments(Array.from(e.target.files));
+              e.target.value = "";
+            }}
+          />
+
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs text-txt2 hover:bg-surface2"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              Attach photo
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy || !stripBullets(text)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-3 text-sm font-medium text-white transition active:opacity-80 disabled:opacity-40"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Send
+            </button>
+          </div>
 
           {mine.length > 0 && (
             <div className="mt-5">
@@ -269,6 +375,13 @@ export default function FeedbackOverlay({
                         </li>
                       ))}
                     </ul>
+                    {i.image_paths && i.image_paths.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {i.image_paths.map((p) => (
+                          <FeedbackThumb key={p} path={p} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -277,5 +390,37 @@ export default function FeedbackOverlay({
         </div>
       </div>
     </div>
+  );
+}
+
+/** A single attached-photo thumbnail, resolved from its storage path to a
+ * signed URL on mount — same cached-signed-URL approach as NotebookEditor's
+ * resolveImageUrl, since feedback-images is a private bucket. */
+function FeedbackThumb({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(imageUrlCache.get(path) ?? null);
+
+  useEffect(() => {
+    if (url) return;
+    let cancelled = false;
+    const supabase = createClient();
+    supabase.storage
+      .from("feedback-images")
+      .createSignedUrl(path, 3600)
+      .then(({ data }) => {
+        if (cancelled || !data?.signedUrl) return;
+        imageUrlCache.set(path, data.signedUrl);
+        setUrl(data.signedUrl);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, url]);
+
+  if (!url) return <div className="h-14 w-14 animate-pulse rounded-lg bg-surface2" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-lg border border-border">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="" className="h-full w-full object-cover" />
+    </a>
   );
 }
