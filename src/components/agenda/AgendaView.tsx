@@ -733,7 +733,7 @@ export default function AgendaView() {
         onClick={() => setEditingTask(t)}
         className={clsx(
           "group flex cursor-pointer items-center rounded-lg hover:bg-surface2",
-          compact ? "gap-1 px-1.5 py-1" : "gap-2.5 px-2 py-2.5 md:py-1.5",
+          compact ? "gap-1.5 px-2 py-1.5" : "gap-2.5 px-2 py-2.5 md:py-1.5",
           draggable && "cursor-grab active:cursor-grabbing",
           dragPos === "before" && "border-t-2 border-accent",
           dragPos === "after" && "border-b-2 border-accent"
@@ -769,7 +769,7 @@ export default function AgendaView() {
         {parent && (
           <span
             title={`Subtask of "${parent.title}"`}
-            className={clsx("shrink-0 text-txt3", compact ? "text-[9px]" : "text-[11px] md:text-[10px]")}
+            className={clsx("shrink-0 text-txt3", compact ? "text-[10px]" : "text-[11px] md:text-[10px]")}
           >
             ↳
           </span>
@@ -777,7 +777,7 @@ export default function AgendaView() {
         <span
           className={clsx(
             "min-w-0 flex-1 text-txt",
-            compact ? "text-[10px] leading-tight" : "text-[15px] md:text-xs",
+            compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
             mode === "week" ? "break-words" : "truncate"
           )}
         >
@@ -871,7 +871,7 @@ export default function AgendaView() {
         <div
           className={clsx(
             "mb-2 flex flex-nowrap items-baseline overflow-hidden border-b border-border pb-1",
-            horizontal ? "gap-1" : "gap-2"
+            horizontal ? "gap-1.5" : "gap-2"
           )}
         >
           <span
@@ -886,7 +886,7 @@ export default function AgendaView() {
           <span
             className={clsx(
               "shrink-0 whitespace-nowrap text-txt3",
-              horizontal ? "text-[10px]" : "text-xs md:text-[10px]"
+              horizontal ? "text-[11px]" : "text-xs md:text-[10px]"
             )}
           >
             {format(day, "MMM d")}
@@ -939,7 +939,7 @@ export default function AgendaView() {
             }
             className={clsx(
               "flex cursor-pointer flex-col rounded-lg hover:bg-surface2",
-              horizontal ? "gap-0.5 px-1.5 py-1" : "gap-0.5 px-2 py-2.5 md:py-1.5",
+              horizontal ? "gap-1 px-2 py-1.5" : "gap-0.5 px-2 py-2.5 md:py-1.5",
               mode === "week" && "cursor-grab active:cursor-grabbing"
             )}
           >
@@ -948,14 +948,14 @@ export default function AgendaView() {
                 <span
                   className={clsx(
                     "shrink-0 rounded-full",
-                    horizontal ? "mt-1 h-1.5 w-1.5" : "mt-1.5 h-2 w-2"
+                    horizontal ? "mt-1.5 h-1.5 w-1.5" : "mt-1.5 h-2 w-2"
                   )}
                   style={{ background: e.color ?? "#56A8F0" }}
                 />
                 <span
                   className={clsx(
                     "min-w-0 text-txt",
-                    horizontal ? "text-[10px] leading-tight" : "text-[15px] md:text-xs",
+                    horizontal ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
                     titleCls
                   )}
                 >
@@ -965,7 +965,7 @@ export default function AgendaView() {
               <span
                 className={clsx(
                   "shrink-0 whitespace-nowrap tabular-nums text-txt3",
-                  horizontal ? "text-[10px]" : "text-xs md:text-[10px]"
+                  horizontal ? "text-[11px]" : "text-xs md:text-[10px]"
                 )}
               >
                 {e.allDay ? "All day" : fmtTime(parseISO(e.start))}
@@ -974,7 +974,7 @@ export default function AgendaView() {
             <div
               className={clsx(
                 "flex items-center gap-3 text-txt3",
-                horizontal ? "pl-3 text-[10px]" : "pl-4 text-[11px] md:text-[10px]"
+                horizontal ? "pl-3 text-[11px]" : "pl-4 text-[11px] md:text-[10px]"
               )}
             >
               {e.location && mode === "week" && (
@@ -1309,13 +1309,13 @@ export default function AgendaView() {
                   an equal-fraction grid with the compact/shrunk text in TaskRow and
                   renderDayCell (see `compact`/`horizontal` above) so narrow columns
                   stay readable instead of collapsing to one letter per line. */}
-              <div className="hidden h-full grid-cols-7 items-start gap-2 p-4 md:grid md:p-6">
+              <div className="hidden h-full grid-cols-7 items-start gap-3 p-4 md:grid md:p-6">
                 {days.map((day, i) => (
                   <div
                     key={day.toISOString()}
                     className={clsx(
                       "min-w-0",
-                      i < days.length - 1 && "border-r border-txt3/10 pr-2"
+                      i < days.length - 1 && "border-r border-txt3/10 pr-3"
                     )}
                   >
                     {renderDayCell(day, true)}
