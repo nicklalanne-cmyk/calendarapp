@@ -643,6 +643,31 @@ export default function NotebookCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool, selected]);
 
+  // Paste an image from the OS clipboard (screenshot, copied image, etc.)
+  // straight onto the page — separate from the ink-stroke clipboard above,
+  // which only handles copy/paste of selected strokes and is gated to the
+  // select tool. Image paste should work regardless of which tool is active.
+  useEffect(() => {
+    if (readOnly || !onInsertImage) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            onImageChosen(file);
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, onInsertImage, elements]);
+
   /* ---------------- lasso resize (scale selected strokes from a corner handle) ---------------- */
   const selectionBounds = () => {
     const sel = strokes.current.filter((s) => selected.has(s.id));

@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 // when the keyboard opens. The other half is the --app-height JS fallback in AppShell
 // for browsers that don't support this yet.
 export const viewport = {
-  themeColor: "#0E0E12",
+  themeColor: "#FAFAFC",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -26,12 +26,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              "try{var t=localStorage.getItem('cadence-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}",
-          }}
-        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

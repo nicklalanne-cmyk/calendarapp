@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Task, CalendarEvent } from "@/lib/types";
 import { dayRange, weekRange, monthRange, fmtDayHeader, fmtMonthYear } from "@/lib/dates";
 import { nextDue, type ParsedTask } from "@/lib/tasks";
+import { toISODate } from "@/lib/recurrence";
 import { useSettings } from "@/components/SettingsProvider";
 import { getHiddenCals } from "@/lib/calfilter";
 import { toast } from "@/lib/toast";
@@ -1091,6 +1092,7 @@ export default function Planner() {
           projects={projectNames}
           allTags={tagNames}
           currentUserId={currentUserId}
+          defaultDueDate={toISODate(date)}
           onSave={createTask}
           onClose={() => setCreating(false)}
         />

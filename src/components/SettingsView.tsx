@@ -47,7 +47,6 @@ const COMMON_TIMEZONES = [
 export default function SettingsView() {
   const { settings, update, ready } = useSettings();
   const supabase = createClient();
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [saved, setSaved] = useState(false);
   const [keyMeta, setKeyMeta] = useState<KeyMeta | null>(null);
   const [keyLoading, setKeyLoading] = useState(true);
@@ -58,10 +57,6 @@ export default function SettingsView() {
   );
   const [digestHour, setDigestHourState] = useState(8);
   const [tzLoaded, setTzLoaded] = useState(false);
-
-  useEffect(() => {
-    setTheme((document.documentElement.getAttribute("data-theme") as "dark" | "light") || "dark");
-  }, []);
 
   // These live in user_settings alongside the rest of the settings row, but
   // aren't part of SettingsProvider's synced shape — until now they were only
@@ -180,17 +175,6 @@ export default function SettingsView() {
   const flash = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 1400);
-  };
-
-  const setTheme_ = (t: "dark" | "light") => {
-    document.documentElement.setAttribute("data-theme", t);
-    try {
-      localStorage.setItem("cadence-theme", t);
-    } catch {
-      /* ignore */
-    }
-    setTheme(t);
-    flash();
   };
 
   return (
@@ -326,26 +310,6 @@ export default function SettingsView() {
           </div>
         </section>
 
-        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
-          <h2 className="text-sm font-semibold">Appearance</h2>
-          <p className="mb-3 text-xs text-txt3">This one is saved on this device.</p>
-          <div className="flex gap-2">
-            {(["dark", "light"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTheme_(t)}
-                className={clsx(
-                  "flex-1 rounded-lg border px-3 py-2 text-sm capitalize transition",
-                  theme === t
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-border text-txt2 hover:bg-surface2"
-                )}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </section>
 
         <section className="mb-6 rounded-xl border border-border bg-surface p-4">
           <div className="flex items-start gap-3">

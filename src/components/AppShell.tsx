@@ -9,8 +9,6 @@ import {
   StickyNote,
   LogOut,
   Link2,
-  Sun,
-  Moon,
   Settings,
   Sparkles,
   Menu,
@@ -52,7 +50,6 @@ export default function AppShell({
   const [sheet, setSheet] = useState(false);
   const [feedback, setFeedback] = useState(false);
   const { isAdmin, openCount } = useAdminInbox();
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [railExpanded, setRailExpanded] = useState(false);
   const [thoughtsOpen, setThoughtsOpen] = useState(false);
   const [thoughtsSheet, setThoughtsSheet] = useState(false);
@@ -76,8 +73,6 @@ export default function AppShell({
   }, []);
 
   useEffect(() => {
-    const t = (document.documentElement.getAttribute("data-theme") as "dark" | "light") || "dark";
-    setTheme(t);
     try {
       setRailExpanded(localStorage.getItem("cadence-rail-expanded") === "1");
       setThoughtsOpen(localStorage.getItem("cadence-thoughts-open") === "1");
@@ -142,17 +137,6 @@ export default function AppShell({
       window.removeEventListener("resize", setAppHeight);
     };
   }, []);
-
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    try {
-      localStorage.setItem("cadence-theme", next);
-    } catch {
-      /* ignore */
-    }
-    setTheme(next);
-  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -593,11 +577,6 @@ export default function AppShell({
                   setSheet(false);
                   router.push("/app/settings");
                 }}
-              />
-              <SheetRow
-                icon={theme === "dark" ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
-                label={theme === "dark" ? "Light theme" : "Dark theme"}
-                onClick={toggleTheme}
               />
               <div className="flex items-center gap-3 rounded-xl px-3 py-2 text-[15px]">
                 <Reminders />
