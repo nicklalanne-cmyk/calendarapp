@@ -308,9 +308,18 @@ export default function Planner() {
   };
 
   const addSubtask = async (parent: Task, title: string) => {
-    const { error } = await supabase
-      .from("tasks")
-      .insert({ title, parent_id: parent.id, project: parent.project });
+    // Inherit the parent's due date/kind — Agenda's day/week cells only show
+    // a task if its own due_date matches that cell, so a subtask created with
+    // no due_date never showed up there, even though it nests fine here in
+    // Planner's flat TaskList (which doesn't filter by date). Matches the
+    // same fix in AgendaView's addSubtaskToTask.
+    const { error } = await supabase.from("tasks").insert({
+      title,
+      parent_id: parent.id,
+      project: parent.project,
+      due_date: parent.due_date,
+      due_kind: parent.due_kind ?? "day",
+    });
     if (error) return toast(error.message, "error");
     loadTasks();
   };

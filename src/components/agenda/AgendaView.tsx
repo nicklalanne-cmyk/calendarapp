@@ -348,9 +348,19 @@ export default function AgendaView() {
   };
 
   const addSubtaskToTask = async (parent: Task, title: string) => {
-    const { error } = await supabase
-      .from("tasks")
-      .insert({ title, parent_id: parent.id, project: parent.project });
+    // Inherit the parent's due date/kind — Agenda's day/week cells only show
+    // a task if its own due_date matches that cell, so a subtask created with
+    // no due_date (the old behavior) never appeared anywhere in Agenda, only
+    // in Planner's flat TaskList (which nests subtasks under their parent
+    // regardless of date). Inheriting makes it show up right alongside its
+    // parent, which is what "add a subtask" should look like here.
+    const { error } = await supabase.from("tasks").insert({
+      title,
+      parent_id: parent.id,
+      project: parent.project,
+      due_date: parent.due_date,
+      due_kind: parent.due_kind ?? "day",
+    });
     if (error) return toast(error.message, "error");
     load(true);
   };
