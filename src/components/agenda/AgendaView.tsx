@@ -163,10 +163,16 @@ export default function AgendaView() {
           if (!cached) setEvents([]);
         }
       }
+      // Completed top-level tasks are never shown here, so there's no need to
+      // fetch the app's whole task-completion history — but a completed
+      // *subtask* needs to stay visible while its parent's still open (see
+      // openTasks below), so subtasks are fetched regardless of is_done.
+      // Bounded by however many subtasks exist, not by total tasks ever
+      // completed.
       const { data } = await supabase
         .from("tasks")
         .select("*")
-        .eq("is_done", false)
+        .or("is_done.eq.false,parent_id.not.is.null")
         .is("deleted_at", null);
       if (seq !== reqSeq.current) return;
       setTasks((data as Task[]) ?? []);
@@ -256,6 +262,20 @@ export default function AgendaView() {
     load(true);
   };
 
+  // Subtasks inherit their parent's due date when created (see addSubtaskToTask),
+  // but that was a one-time copy — postponing/rescheduling the parent afterward
+  // left every subtask still pointing at the old date, so they'd drift apart in
+  // Agenda's day/week cells (which only show a task on the day its own due_date
+  // matches). Call this after any successful due_date/due_kind change on a task
+  // that might have subtasks, so they always move together with their parent.
+  const cascadeDueToSubtasks = async (parentId: string, due_date: string | null, due_kind: "day" | "week") => {
+    const childIds = tasks.filter((x) => x.parent_id === parentId).map((x) => x.id);
+    if (childIds.length === 0) return;
+    setTasks((cur) => cur.map((x) => (childIds.includes(x.id) ? { ...x, due_date, due_kind } : x)));
+    const { error } = await supabase.from("tasks").update({ due_date, due_kind }).in("id", childIds);
+    if (error) toast(error.message, "error");
+  };
+
   const updateTask = async (t: Task, d: TaskDraft) => {
     const patch = {
       title: d.title,
@@ -277,6 +297,9 @@ export default function AgendaView() {
     };
     const { error } = await supabase.from("tasks").update(patch).eq("id", t.id);
     if (error) return toast(error.message, "error");
+    if (patch.due_date !== t.due_date || patch.due_kind !== (t.due_kind ?? "day")) {
+      await cascadeDueToSubtasks(t.id, patch.due_date, patch.due_kind);
+    }
     await fireTaskUpdated(supabase, {
       id: t.id,
       title: patch.title ?? t.title,
@@ -508,6 +531,8 @@ export default function AgendaView() {
     if (data.kind === "task") {
       const { error } = await supabase.from("tasks").update({ due_date: dayStr }).eq("id", data.id);
       if (error) return toast(error.message, "error");
+      const dragged = tasks.find((x) => x.id === data.id);
+      await cascadeDueToSubtasks(data.id, dayStr, dragged?.due_kind ?? "day");
       load(true);
       return;
     }
@@ -685,6 +710,10 @@ export default function AgendaView() {
     if (error) {
       toast(error.message, "error");
       load(true);
+      return;
+    }
+    if (patch.due_date !== undefined) {
+      await cascadeDueToSubtasks(draggedId, patch.due_date, patch.due_kind ?? "day");
     }
   };
 
@@ -806,7 +835,7 @@ export default function AgendaView() {
             "min-w-0 flex-1",
             t.is_done ? "text-txt3 line-through" : "text-txt",
             compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
-            mode === "week" ? "break-words" : "truncate"
+            mode === "week" ? "line-clamp-2 break-words" : "truncate"
           )}
         >
           {t.title}
@@ -887,7 +916,11 @@ export default function AgendaView() {
         : [];
 
     const emptyDay = dayEvents.length === 0 && dayTasks.length === 0 && daySharedEvents.length === 0;
-    const titleCls = horizontal ? "break-words" : "truncate";
+    // line-clamp-2 wraps at word boundaries (unlike break-words alone, which
+    // degenerates into breaking mid-word/character when a column is this
+    // narrow) and caps titles at two lines instead of growing the cell
+    // unboundedly for long titles.
+    const titleCls = horizontal ? "line-clamp-2 break-words" : "truncate";
 
     return (
       <div

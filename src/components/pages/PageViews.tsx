@@ -243,7 +243,7 @@ export function BoardView(v: ViewProps) {
                 onClick={() => v.onOpenRecord(r)}
                 className="cursor-pointer rounded-lg border border-border bg-bg p-2.5 hover:border-accent/50"
               >
-                <div className="truncate text-sm font-medium">{r.title || "Untitled"}</div>
+                <div className="line-clamp-3 break-words text-sm font-medium">{r.title || "Untitled"}</div>
                 <div className="mt-1 space-y-0.5">
                   {preview.map((p) => {
                     const val = r.props[p.id];

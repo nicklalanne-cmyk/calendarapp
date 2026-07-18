@@ -307,6 +307,20 @@ export default function Planner() {
     loadTasks();
   };
 
+  // Subtasks inherit their parent's due date when created (see addSubtask
+  // below), but that was a one-time copy — postponing/rescheduling the
+  // parent afterward left every subtask still pointing at the old date,
+  // effectively disconnecting them (invisible in Agenda's date-filtered
+  // cells even though the parent moved). Call this after any successful
+  // due_date/due_kind change on a task that might have subtasks.
+  const cascadeDueToSubtasks = async (parentId: string, due_date: string | null, due_kind: "day" | "week") => {
+    const childIds = tasks.filter((x) => x.parent_id === parentId).map((x) => x.id);
+    if (childIds.length === 0) return;
+    setTasks((cur) => cur.map((x) => (childIds.includes(x.id) ? { ...x, due_date, due_kind } : x)));
+    const { error } = await supabase.from("tasks").update({ due_date, due_kind }).in("id", childIds);
+    if (error) toast(error.message, "error");
+  };
+
   const addSubtask = async (parent: Task, title: string) => {
     // Inherit the parent's due date/kind — Agenda's day/week cells only show
     // a task if its own due_date matches that cell, so a subtask created with
@@ -520,6 +534,10 @@ export default function Planner() {
       .update({ ...patch, repeat: patch.rrule ? null : null })
       .eq("id", t.id);
     if (error) return toast(error.message, "error");
+
+    if (patch.due_date !== t.due_date || patch.due_kind !== (t.due_kind ?? "day")) {
+      await cascadeDueToSubtasks(t.id, patch.due_date ?? null, patch.due_kind ?? "day");
+    }
 
     await fireTaskUpdated(supabase, {
       id: t.id,
