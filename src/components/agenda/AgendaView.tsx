@@ -577,8 +577,18 @@ export default function AgendaView() {
   // vanished instead of showing anywhere. They're included now, tagged with
   // a small "↳ parent title" hint in TaskRow so it's still clear they belong
   // to something.
-  const openTasks = tasks.filter((t) => !t.is_done);
   const taskById = new Map(tasks.map((x) => [x.id, x]));
+  // A checked-off subtask still shows here as long as its parent isn't done
+  // yet — checking off one subtask of three shouldn't make it vanish from
+  // the day it's due; it should sit there, struck through, until the whole
+  // task is wrapped up. Only applies to subtasks: a completed top-level task
+  // still drops out of view immediately, same as always.
+  const openTasks = tasks.filter((t) => {
+    if (!t.is_done) return true;
+    if (!t.parent_id) return false;
+    const parent = taskById.get(t.parent_id);
+    return !!parent && !parent.is_done;
+  });
   // These buckets are anchored to the real, current-moment "today" — not to
   // whichever day/week the main view happens to be showing — so "Due today"
   // never mislabels a future day's tasks just because you navigated forward.
@@ -752,12 +762,19 @@ export default function AgendaView() {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            completeTask(t);
+            // A visible completed task is always a subtask (top-level done
+            // tasks never render here) — toggling it back to open should be
+            // possible right from the row, not just from the parent's modal.
+            if (t.is_done) toggleSubtask(t);
+            else completeTask(t);
           }}
-          aria-label={`Mark "${t.title}" done`}
+          aria-label={t.is_done ? `Mark "${t.title}" not done` : `Mark "${t.title}" done`}
           className={clsx(
-            "shrink-0 items-center justify-center rounded-full border-2 transition active:bg-accent active:text-white md:border md:hover:border-accent md:hover:bg-accent md:hover:text-white",
-            chip?.overdue ? "border-danger" : "border-txt3",
+            "shrink-0 items-center justify-center rounded-full border-2 transition",
+            t.is_done
+              ? "border-accent bg-accent text-white"
+              : "active:bg-accent active:text-white md:border md:hover:border-accent md:hover:bg-accent md:hover:text-white",
+            !t.is_done && (chip?.overdue ? "border-danger" : "border-txt3"),
             compact
               ? "hidden md:flex md:h-3 md:w-3 md:p-0"
               : "-m-1.5 flex h-9 w-9 p-1.5 md:m-0 md:h-[18px] md:w-[18px] md:p-0"
@@ -765,7 +782,7 @@ export default function AgendaView() {
         >
           <Check
             className={clsx(
-              "opacity-40 active:opacity-100 md:opacity-0 md:group-hover:opacity-100",
+              t.is_done ? "opacity-100" : "opacity-40 active:opacity-100 md:opacity-0 md:group-hover:opacity-100",
               compact ? "h-2 w-2" : "h-4 w-4 md:h-2.5 md:w-2.5"
             )}
           />
@@ -786,7 +803,8 @@ export default function AgendaView() {
         )}
         <span
           className={clsx(
-            "min-w-0 flex-1 text-txt",
+            "min-w-0 flex-1",
+            t.is_done ? "text-txt3 line-through" : "text-txt",
             compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
             mode === "week" ? "break-words" : "truncate"
           )}
@@ -1175,8 +1193,9 @@ export default function AgendaView() {
           </div>
         </header>
 
-        {/* mobile: day mode gets a big date number + a tap-to-jump month calendar;
-            week mode keeps the original title/controls/7-day-strip header. */}
+        {/* mobile: both day and week mode get a big date number + a
+            tap-to-jump month calendar; week mode additionally shows the
+            week's date range as a title in the row below. */}
         <header className="shrink-0 border-b border-border px-4 pb-2 md:hidden">
           <div className="flex items-center gap-1.5 py-1">
             <button
@@ -1214,58 +1233,22 @@ export default function AgendaView() {
             </div>
           </div>
 
-          {mode === "day" ? (
-            <div className="flex items-start gap-3 py-2">
-              <div className="shrink-0">
-                <div className="text-5xl font-bold leading-none tabular-nums" style={{ color: TODAY_COLOR }}>
-                  {format(anchor, "d")}
-                </div>
-                <div className="mt-1.5 whitespace-nowrap text-xs text-txt3">
-                  {format(anchor, "EEEE")}, Week {getWeek(anchor, { weekStartsOn: 0 })}
-                </div>
+          {/* Same big-date + tap-to-jump month calendar in both modes now —
+              week mode used to show a 7-day pill strip here instead, but it
+              was redundant with the full week list right below it. Picking a
+              date here doesn't change mode, so in week mode it just re-centers
+              the week around whatever day you tap. */}
+          <div className="flex items-start gap-3 py-2">
+            <div className="shrink-0">
+              <div className="text-5xl font-bold leading-none tabular-nums" style={{ color: TODAY_COLOR }}>
+                {format(anchor, "d")}
               </div>
-              <MiniMonthCalendar anchor={anchor} onPick={(d) => setAnchor(d)} />
+              <div className="mt-1.5 whitespace-nowrap text-xs text-txt3">
+                {format(anchor, "EEEE")}, Week {getWeek(anchor, { weekStartsOn: 0 })}
+              </div>
             </div>
-          ) : (
-            /* a 7-column grid can't drift: every day gets exactly 1/7 of the width */
-            <div className="grid grid-cols-7">
-              {strip.map((d) => {
-                const sel = isSameDay(d, anchor);
-                const isTd = isSameDay(d, new Date());
-                return (
-                  <button
-                    key={d.toISOString()}
-                    onClick={() => {
-                      setAnchor(d);
-                      setMode("day");
-                    }}
-                    className="flex flex-col items-center gap-1 py-1.5 active:opacity-60"
-                  >
-                    <span
-                      className={clsx(
-                        "text-[11px] font-medium uppercase",
-                        sel ? "text-accent" : "text-txt3"
-                      )}
-                    >
-                      {format(d, "EEEEE")}
-                    </span>
-                    <span
-                      className={clsx(
-                        "flex h-9 w-9 items-center justify-center rounded-full text-[15px] tabular-nums transition",
-                        sel
-                          ? "bg-accent font-semibold text-white"
-                          : isTd
-                            ? "font-semibold text-accent"
-                            : "text-txt2"
-                      )}
-                    >
-                      {format(d, "d")}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+            <MiniMonthCalendar anchor={anchor} onPick={(d) => setAnchor(d)} />
+          </div>
         </header>
 
         <div
