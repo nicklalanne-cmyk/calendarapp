@@ -38,6 +38,26 @@ body {
 * {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Several form fields across the app (TaskModal, EventModal, NotebookEditor,
+   RecordSheet, etc.) use a sub-16px font size on mobile for a tighter look —
+   but iOS Safari auto-zooms the whole page in on focus for any input/textarea
+   under 16px, then pans the visual viewport to keep it in view. That zoom+pan
+   is what shows up as "the keyboard pushes the whole page up and I can't see
+   what I'm typing": it's not our own keyboard-resize logic (see --app-height
+   in AppShell) misbehaving, it's the browser compensating for tiny text.
+   Forcing a 16px floor on every text field below the desktop breakpoint
+   removes the trigger app-wide without having to touch each field's classes. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    /* !important: these elements' font sizes are set by Tailwind utility
+       classes (e.g. text-[15px]), which are higher-specificity class
+       selectors that would otherwise win over this plain element selector. */
+    font-size: 16px !important;
+  }
+}
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

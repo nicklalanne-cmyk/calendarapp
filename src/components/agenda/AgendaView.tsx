@@ -5,6 +5,7 @@ import { addDays, format, getWeek, isSameDay, parseISO } from "date-fns";
 import {
   Check, MapPin, Flag, Video, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   ListTodo, X, Loader2, Users, Plus, ArrowUpRight, PanelRightClose, PanelRightOpen, Hash,
+  CornerDownRight,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
@@ -785,7 +786,10 @@ export default function AgendaView() {
           compact ? "gap-1.5 px-2 py-1.5" : "gap-2.5 px-2 py-2.5 md:py-1.5",
           draggable && "cursor-grab active:cursor-grabbing",
           dragPos === "before" && "border-t-2 border-accent",
-          dragPos === "after" && "border-b-2 border-accent"
+          dragPos === "after" && "border-b-2 border-accent",
+          // Indent + a left guide line so a subtask visibly nests under its
+          // parent instead of just carrying a small inline arrow glyph.
+          parent && (compact ? "ml-2 border-l-2 border-border pl-1.5" : "ml-3 border-l-2 border-border pl-2 md:ml-2")
         )}
       >
         <button
@@ -823,22 +827,24 @@ export default function AgendaView() {
           />
         )}
         {parent && (
-          <span
-            title={`Subtask of "${parent.title}"`}
-            className={clsx("shrink-0 text-txt3", compact ? "text-[10px]" : "text-[11px] md:text-[10px]")}
-          >
-            ↳
+          <span title={`Subtask of "${parent.title}"`} className="shrink-0">
+            <CornerDownRight className={clsx("text-accentSoft", compact ? "h-2.5 w-2.5" : "h-3 w-3")} />
           </span>
         )}
-        <span
-          className={clsx(
-            "min-w-0 flex-1",
-            t.is_done ? "text-txt3 line-through" : "text-txt",
-            compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
-            mode === "week" ? "line-clamp-2 break-words" : "truncate"
+        <span className="min-w-0 flex-1">
+          <span
+            className={clsx(
+              "block",
+              t.is_done ? "text-txt3 line-through" : "text-txt",
+              compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
+              mode === "week" ? "line-clamp-2 break-words" : "truncate"
+            )}
+          >
+            {t.title}
+          </span>
+          {parent && !compact && (
+            <span className="block truncate text-[10px] text-txt3">of “{parent.title}”</span>
           )}
-        >
-          {t.title}
         </span>
         {t.project && !compact && (
           <span className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[11px] text-accentSoft md:text-[10px]">
@@ -980,7 +986,6 @@ export default function AgendaView() {
             showDue={(t.due_kind ?? "day") === "week" || t.due_date !== dayStr}
             list={dayTasks}
             dueSync={mode === "week"}
-            compact={horizontal}
           />
         ))}
 
@@ -1016,7 +1021,7 @@ export default function AgendaView() {
                 <span
                   className={clsx(
                     "min-w-0 text-txt",
-                    horizontal ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
+                    horizontal ? "text-xs leading-snug" : "text-[15px] md:text-xs",
                     titleCls
                   )}
                 >
@@ -1331,16 +1336,16 @@ export default function AgendaView() {
                   </div>
                 </div>
               )}
-              {/* desktop: all 7 days fit on screen at once, no horizontal scrolling —
-                  an equal-fraction grid with the compact/shrunk text in TaskRow and
-                  renderDayCell (see `compact`/`horizontal` above) so narrow columns
-                  stay readable instead of collapsing to one letter per line. */}
-              <div className="hidden h-full grid-cols-7 items-start gap-3 p-4 md:grid md:p-6">
+              {/* desktop: fixed-width columns that side-scroll instead of squeezing
+                  all 7 days into the screen width — trading the "no scrolling" layout
+                  for actually-legible text, per feedback that the old equal-fraction
+                  grid crushed everything down too small to read. */}
+              <div className="hidden h-full items-start gap-3 overflow-x-auto p-4 md:flex md:p-6">
                 {days.map((day, i) => (
                   <div
                     key={day.toISOString()}
                     className={clsx(
-                      "min-w-0",
+                      "w-64 shrink-0",
                       i < days.length - 1 && "border-r border-txt3/10 pr-3"
                     )}
                   >
