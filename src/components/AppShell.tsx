@@ -26,6 +26,7 @@ import {
   Brain,
   ChevronDown,
   ChevronUp,
+  ListChecks,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
 import Reminders from "@/components/Reminders";
@@ -157,6 +158,7 @@ export default function AppShell({
   // Calendars now lives in Settings, and Search/Assistant moved to the
   // top-right utility bar, so the rail itself only has to hold the pages.
   const thoughtsChildren = [
+    { href: "/app/tasks", label: "Tasks", icon: ListChecks },
     { href: "/app/notes", label: "Notes", icon: StickyNote },
     { href: "/app/pages", label: "Pages", icon: Table2 },
     { href: "/app/plaud", label: "Plaud", icon: Mic },
