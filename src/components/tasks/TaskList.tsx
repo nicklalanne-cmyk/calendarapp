@@ -18,6 +18,7 @@ export default function TaskList({
   onDelete,
   onCyclePriority,
   onAddSubtask,
+  onEditSubtask,
   onOpenNote,
   onOpenTask,
   onNewTask,
@@ -32,6 +33,8 @@ export default function TaskList({
   onDelete: (t: Task) => void;
   onCyclePriority: (t: Task) => void;
   onAddSubtask: (parent: Task, title: string) => void;
+  /** Renames a subtask in place — optional, same pattern as onAddSubtask. */
+  onEditSubtask?: (subtask: Task, title: string) => void;
   onOpenNote: (t: Task) => void;
   onOpenTask: (t: Task) => void;
   onNewTask: () => void;
@@ -192,6 +195,7 @@ export default function TaskList({
                     onDelete={onDelete}
                     onCyclePriority={onCyclePriority}
                     onAddSubtask={onAddSubtask}
+                    onEditSubtask={onEditSubtask}
                     onOpenNote={onOpenNote}
                     onOpenTask={() => toggleSelected(t.id)}
                     onSchedule={onSchedule}
@@ -207,6 +211,7 @@ export default function TaskList({
                 onDelete={onDelete}
                 onCyclePriority={onCyclePriority}
                 onAddSubtask={onAddSubtask}
+                onEditSubtask={onEditSubtask}
                 onOpenNote={onOpenNote}
                 onOpenTask={onOpenTask}
                 onSchedule={onSchedule}

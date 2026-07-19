@@ -338,6 +338,16 @@ export default function Planner() {
     loadTasks();
   };
 
+  const editSubtaskTitle = async (t: Task, title: string) => {
+    setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, title } : x)));
+    const { error } = await supabase.from("tasks").update({ title }).eq("id", t.id);
+    if (error) {
+      setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, title: t.title } : x)));
+      return toast(error.message, "error");
+    }
+    loadTasks();
+  };
+
   const toggleTask = async (t: Task) => {
     const completing = !t.is_done;
     // Optimistic — a checkbox click should feel instant, not wait on a round
@@ -873,6 +883,7 @@ export default function Planner() {
           onDelete={deleteTask}
           onCyclePriority={cyclePriority}
           onAddSubtask={addSubtask}
+          onEditSubtask={editSubtaskTitle}
           onOpenNote={openNoteForTask}
           onOpenTask={(t) => setEditing(t)}
           onNewTask={() => setCreating(true)}

@@ -15,6 +15,7 @@ import { getHiddenCals } from "@/lib/calfilter";
 import { toISODate } from "@/lib/recurrence";
 import { startOfWeek } from "@/lib/tasks";
 import { dueChip } from "@/components/tasks/TaskItem";
+import EditableTitle from "@/components/tasks/EditableTitle";
 import { toast } from "@/lib/toast";
 import {
   clearEventsCache, eventsCacheKey, getCachedEvents, isEventsCacheFresh, setCachedEvents,
@@ -408,6 +409,16 @@ export default function AgendaView() {
       .eq("id", t.id);
     if (error) {
       load(true);
+      return toast(error.message, "error");
+    }
+    load(true);
+  };
+
+  const editSubtaskTitle = async (t: Task, title: string) => {
+    setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, title } : x)));
+    const { error } = await supabase.from("tasks").update({ title }).eq("id", t.id);
+    if (error) {
+      setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, title: t.title } : x)));
       return toast(error.message, "error");
     }
     load(true);
@@ -858,16 +869,32 @@ export default function AgendaView() {
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <span
-            className={clsx(
-              "block",
-              t.is_done ? "text-txt3 line-through" : "text-txt",
-              compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
-              mode === "week" ? "line-clamp-2 break-words" : "truncate"
-            )}
-          >
-            {t.title}
-          </span>
+          {parent ? (
+            // Subtask rows are editable right here — tap/click the title to
+            // rename it in place instead of having to open the parent's
+            // full task modal just to fix a typo.
+            <EditableTitle
+              value={t.title}
+              onSave={(title) => editSubtaskTitle(t, title)}
+              className={clsx(
+                "block",
+                t.is_done ? "text-txt3 line-through" : "text-txt",
+                compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
+                mode === "week" ? "line-clamp-2 break-words" : "truncate"
+              )}
+            />
+          ) : (
+            <span
+              className={clsx(
+                "block",
+                t.is_done ? "text-txt3 line-through" : "text-txt",
+                compact ? "text-[11px] leading-snug" : "text-[15px] md:text-xs",
+                mode === "week" ? "line-clamp-2 break-words" : "truncate"
+              )}
+            >
+              {t.title}
+            </span>
+          )}
           {parent && !compact && (
             <span className="block truncate text-[10px] text-txt3">of “{parent.title}”</span>
           )}
@@ -1464,6 +1491,7 @@ export default function AgendaView() {
           onAddSubtask={(title) => addSubtaskToTask(editingTask, title)}
           onToggleSubtask={toggleSubtask}
           onDeleteSubtask={deleteSubtask}
+          onEditSubtask={editSubtaskTitle}
           onSave={(patch) => updateTask(editingTask, patch)}
           onDelete={() => {
             deleteTask(editingTask);

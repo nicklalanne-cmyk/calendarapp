@@ -131,6 +131,16 @@ export default function TasksView() {
     loadTasks();
   };
 
+  const editSubtaskTitle = async (t: Task, title: string) => {
+    setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, title } : x)));
+    const { error } = await supabase.from("tasks").update({ title }).eq("id", t.id);
+    if (error) {
+      setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, title: t.title } : x)));
+      return toast(error.message, "error");
+    }
+    loadTasks();
+  };
+
   const toggleTask = async (t: Task) => {
     const completing = !t.is_done;
     setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: completing } : x)));
@@ -397,6 +407,7 @@ export default function TasksView() {
                   onDelete={deleteTask}
                   onCyclePriority={cyclePriority}
                   onAddSubtask={addSubtask}
+                  onEditSubtask={editSubtaskTitle}
                   onOpenNote={openNoteForTask}
                   onOpenTask={(x) => setEditing(x)}
                   onSchedule={(x) => setScheduling(x)}
@@ -418,6 +429,7 @@ export default function TasksView() {
                   onDelete={deleteTask}
                   onCyclePriority={cyclePriority}
                   onAddSubtask={addSubtask}
+                  onEditSubtask={editSubtaskTitle}
                   onOpenNote={openNoteForTask}
                   onOpenTask={(x) => setEditing(x)}
                   onSchedule={(x) => setScheduling(x)}
@@ -449,6 +461,7 @@ export default function TasksView() {
                     onDelete={deleteTask}
                     onCyclePriority={cyclePriority}
                     onAddSubtask={addSubtask}
+                    onEditSubtask={editSubtaskTitle}
                     onOpenNote={openNoteForTask}
                     onOpenTask={(x) => setEditing(x)}
                     onSchedule={(x) => setScheduling(x)}

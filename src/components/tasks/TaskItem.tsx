@@ -5,6 +5,7 @@ import type { Task } from "@/lib/types";
 import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays, Users } from "lucide-react";
 import clsx from "clsx";
 import { format, parseISO } from "date-fns";
+import EditableTitle from "@/components/tasks/EditableTitle";
 
 const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 
@@ -44,6 +45,7 @@ export default function TaskItem({
   onDelete,
   onCyclePriority,
   onAddSubtask,
+  onEditSubtask,
   onOpenNote,
   onOpenTask,
   onSchedule,
@@ -54,6 +56,9 @@ export default function TaskItem({
   onDelete: (t: Task) => void;
   onCyclePriority: (t: Task) => void;
   onAddSubtask: (parent: Task, title: string) => void;
+  /** Renames a subtask in place — optional so this still works as a plain
+   * read-only list wherever a caller doesn't wire it up. */
+  onEditSubtask?: (subtask: Task, title: string) => void;
   onOpenNote: (t: Task) => void;
   onOpenTask: (t: Task) => void;
   onSchedule: (t: Task) => void;
@@ -283,14 +288,15 @@ export default function TaskItem({
               >
                 {st.is_done && <Check className="h-2.5 w-2.5" />}
               </button>
-              <span
+              <EditableTitle
+                value={st.title}
+                onSave={(title) => onEditSubtask?.(st, title)}
+                disabled={!onEditSubtask}
                 className={clsx(
                   "min-w-0 flex-1 truncate text-sm md:text-xs",
                   st.is_done ? "text-txt3 line-through" : "text-txt2"
                 )}
-              >
-                {st.title}
-              </span>
+              />
               <button
                 onClick={() => onDelete(st)}
                 className="shrink-0 rounded-lg p-1.5 text-txt3 transition active:bg-surface2 md:p-0 md:opacity-0 md:hover:text-danger md:group-hover/s:opacity-100"

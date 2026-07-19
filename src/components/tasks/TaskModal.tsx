@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { X, Trash2, Repeat, CalendarDays, Unlink, Users, Plus, Check } from "lucide-react";
 import LinkPicker from "@/components/notes/LinkPicker";
+import EditableTitle from "@/components/tasks/EditableTitle";
 import clsx from "clsx";
 import type { Task } from "@/lib/types";
 import { describeRRule, presetsFor, parseRRule, formatRRule, DAY_CODES } from "@/lib/recurrence";
@@ -60,6 +61,7 @@ export default function TaskModal({
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
+  onEditSubtask,
 }: {
   task: Task | null;
   mode: "create" | "edit";
@@ -82,6 +84,8 @@ export default function TaskModal({
   onAddSubtask?: (title: string) => void;
   onToggleSubtask?: (t: Task) => void;
   onDeleteSubtask?: (t: Task) => void;
+  /** Renames a subtask in place — optional, same pattern as the handlers above. */
+  onEditSubtask?: (t: Task, title: string) => void;
 }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [dueKind, setDueKind] = useState<"day" | "week">(task?.due_kind ?? "day");
@@ -581,14 +585,15 @@ export default function TaskModal({
                       >
                         {s.is_done && <Check className="h-3 w-3" />}
                       </button>
-                      <span
+                      <EditableTitle
+                        value={s.title}
+                        onSave={(title) => onEditSubtask?.(s, title)}
+                        disabled={!onEditSubtask}
                         className={clsx(
                           "min-w-0 flex-1 truncate text-sm",
                           s.is_done ? "text-txt3 line-through" : "text-txt"
                         )}
-                      >
-                        {s.title}
-                      </span>
+                      />
                       <button
                         onClick={() => onDeleteSubtask?.(s)}
                         className="shrink-0 rounded p-1 text-txt3 opacity-0 transition hover:text-danger group-hover:opacity-100"
