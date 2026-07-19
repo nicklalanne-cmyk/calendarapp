@@ -21,7 +21,12 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get("search");
   if (search) q = q.ilike("title", `%${search}%`);
 
-  const { data, error } = await q.limit(200);
+  // Nearest-due first, undated tasks last — makes the raw feed usable
+  // as-is for an "upcoming tasks" widget without client-side sorting.
+  const { data, error } = await q
+    .order("due_date", { ascending: true, nullsFirst: false })
+    .order("priority", { ascending: false })
+    .limit(200);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ tasks: data });
 }
