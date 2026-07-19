@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Hash, SlidersHorizontal } from "lucide-react";
+import { Plus, Hash, SlidersHorizontal, ChevronDown, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Task } from "@/lib/types";
 import TaskItem from "@/components/tasks/TaskItem";
@@ -29,6 +29,7 @@ export default function TasksView() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
   const [scheduling, setScheduling] = useState<Task | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
@@ -309,10 +310,14 @@ export default function TasksView() {
         : true
     );
 
-  const unscheduled = top.filter((t) => !t.due_date);
-  const scheduled = top
+  const open = top.filter((t) => !t.is_done);
+  const unscheduled = open.filter((t) => !t.due_date);
+  const scheduled = open
     .filter((t) => t.due_date)
     .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? "") || (a.priority || 99) - (b.priority || 99));
+  const completed = top
+    .filter((t) => t.is_done)
+    .sort((a, b) => (b.due_date ?? "").localeCompare(a.due_date ?? ""));
 
   const empty = top.length === 0;
 
@@ -418,6 +423,37 @@ export default function TasksView() {
                   onSchedule={(x) => setScheduling(x)}
                 />
               ))}
+            </div>
+          )}
+          {completed.length > 0 && (
+            <div className="mb-4">
+              <button
+                onClick={() => setShowCompleted((v) => !v)}
+                className="mb-1 flex w-full items-center gap-1 px-1.5 text-[11px] font-semibold uppercase tracking-wide text-txt3"
+              >
+                {showCompleted ? (
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 shrink-0" />
+                )}
+                {showCompleted ? "Completed" : "See completed tasks"}{" "}
+                <span className="text-txt3">{completed.length}</span>
+              </button>
+              {showCompleted &&
+                completed.map((t) => (
+                  <TaskItem
+                    key={t.id}
+                    task={t}
+                    subtasks={children.get(t.id) ?? []}
+                    onToggle={toggleTask}
+                    onDelete={deleteTask}
+                    onCyclePriority={cyclePriority}
+                    onAddSubtask={addSubtask}
+                    onOpenNote={openNoteForTask}
+                    onOpenTask={(x) => setEditing(x)}
+                    onSchedule={(x) => setScheduling(x)}
+                  />
+                ))}
             </div>
           )}
         </>
