@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/google/session";
-import { getPlaidCredentials, plaidClientFor, PLAID_PRODUCTS, PLAID_COUNTRY_CODES } from "@/lib/plaid";
+import { getPlaidCredentials, plaidClientFor, PLAID_PRODUCTS, PLAID_COUNTRY_CODES, PLAID_WEBHOOK_URL } from "@/lib/plaid";
 
 // Cookie-session gated — called from FinanceView right before opening Plaid
 // Link. RLS already scopes plaid_credentials to the signed-in user's own row,
@@ -31,6 +31,9 @@ export async function POST() {
       // them back here to resume Link. Must exactly match a redirect URI
       // registered in the Plaid dashboard.
       redirect_uri: "https://cadenceplanner.app/app/finance",
+      // Lets Plaid push us new-transaction notifications instead of relying
+      // solely on the hourly cron — see /api/webhooks/plaid.
+      webhook: PLAID_WEBHOOK_URL,
     });
     return NextResponse.json({ link_token: res.data.link_token });
   } catch (e) {

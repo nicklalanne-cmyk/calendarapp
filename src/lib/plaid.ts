@@ -1,5 +1,6 @@
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from "plaid";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 export type PlaidCredentialsRow = {
   user_id: string;
@@ -51,6 +52,59 @@ export async function getPlaidCredentials(
 
 export const PLAID_PRODUCTS = [Products.Transactions];
 export const PLAID_COUNTRY_CODES = [CountryCode.Us];
+export const PLAID_WEBHOOK_URL = "https://cadenceplanner.app/api/webhooks/plaid";
+
+// Verification keys are stable and cheap to reuse across invocations of a
+// warm serverless instance — no need to re-fetch per request.
+const webhookKeyCache = new Map<string, string>();
+
+/** Verifies a Plaid webhook's `Plaid-Verification` JWT header against the
+ * raw request body, per Plaid's documented verification flow: decode the
+ * JWT header to find which key signed it, fetch (and cache) that public key,
+ * check the signature, reject anything older than 5 minutes (replay
+ * protection), and confirm the body hash in the JWT payload matches the
+ * actual raw body Plaid sent us. */
+export async function verifyPlaidWebhook(
+  client: PlaidApi,
+  jwt: string,
+  rawBody: string
+): Promise<boolean> {
+  try {
+    const [headerB64, payloadB64, sigB64] = jwt.split(".");
+    if (!headerB64 || !payloadB64 || !sigB64) return false;
+
+    const header = JSON.parse(Buffer.from(headerB64, "base64url").toString("utf8"));
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+    if (header.alg !== "ES256") return false;
+
+    const kid: string = header.kid;
+    let jwkPem = webhookKeyCache.get(kid);
+    if (!jwkPem) {
+      const res = await client.webhookVerificationKeyGet({ key_id: kid });
+      const jwk = res.data.key as unknown as crypto.JsonWebKey;
+      jwkPem = crypto.createPublicKey({ key: jwk, format: "jwk" }).export({ type: "spki", format: "pem" }).toString();
+      webhookKeyCache.set(kid, jwkPem);
+    }
+
+    // Replay protection — reject anything older than 5 minutes.
+    if (typeof payload.iat !== "number" || Date.now() / 1000 - payload.iat > 300) return false;
+
+    const signature = Buffer.from(sigB64, "base64url");
+    const signedData = `${headerB64}.${payloadB64}`;
+    const verified = crypto.verify(
+      "sha256",
+      Buffer.from(signedData),
+      { key: jwkPem, dsaEncoding: "ieee-p1363" },
+      signature
+    );
+    if (!verified) return false;
+
+    const bodyHash = crypto.createHash("sha256").update(rawBody).digest("hex");
+    return bodyHash === payload.request_body_sha256;
+  } catch {
+    return false;
+  }
+}
 
 /** Pulls every account + transaction change since the item's stored cursor
  * (Plaid's /transactions/sync, paginated via has_more) and upserts into
