@@ -35,7 +35,23 @@ import Assistant from "@/components/Assistant";
 import QuickFab from "@/components/QuickFab";
 import FeedbackOverlay from "@/components/feedback/FeedbackOverlay";
 import { useAdminInbox } from "@/components/feedback/useAdminInbox";
+import { useSettings } from "@/components/SettingsProvider";
 import clsx from "clsx";
+
+// Every page eligible for the mobile bottom bar's configurable slots — kept
+// in sync with MOBILE_NAV_OPTIONS in SettingsView.tsx (that file owns the
+// picker UI; this is just the lookup used to render whatever the user chose).
+const MOBILE_NAV_CATALOG = [
+  { href: "/app", label: "Planner", icon: CalendarDays },
+  { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
+  { href: "/app/tasks", label: "Tasks", icon: ListChecks },
+  { href: "/app/notes", label: "Notes", icon: StickyNote },
+  { href: "/app/pages", label: "Pages", icon: Table2 },
+  { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
+  { href: "/app/focus", label: "Focus", icon: Timer },
+  { href: "/app/automations", label: "Automations", icon: Zap },
+  { href: "/app/plaud", label: "Plaud", icon: Mic },
+];
 
 export default function AppShell({
   email,
@@ -51,6 +67,7 @@ export default function AppShell({
   const [sheet, setSheet] = useState(false);
   const [feedback, setFeedback] = useState(false);
   const { isAdmin, openCount } = useAdminInbox();
+  const { settings } = useSettings();
   const [railExpanded, setRailExpanded] = useState(false);
   const [thoughtsOpen, setThoughtsOpen] = useState(false);
   const [thoughtsSheet, setThoughtsSheet] = useState(false);
@@ -154,9 +171,10 @@ export default function AppShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // desktop rail nav; the phone's bottom bar shows the same first four.
-  // Calendars now lives in Settings, and Search/Assistant moved to the
-  // top-right utility bar, so the rail itself only has to hold the pages.
+  // desktop rail nav; the phone's bottom bar shows a user-configurable subset
+  // (see MOBILE_NAV_CATALOG / mobileNav below). Calendars now lives in
+  // Settings, and Search/Assistant moved to the top-right utility bar, so the
+  // rail itself only has to hold the pages.
   const thoughtsChildren = [
     { href: "/app/tasks", label: "Tasks", icon: ListChecks },
     { href: "/app/notes", label: "Notes", icon: StickyNote },
@@ -171,7 +189,13 @@ export default function AppShell({
     { href: "/app/focus", label: "Focus", icon: Timer },
     { href: "/app/automations", label: "Automations", icon: Zap },
   ] as const;
-  const mobileNav = [nav[0], nav[1]]; // Planner, Agenda — Thoughts opens its own sheet
+  // User-configurable (Settings → Mobile bottom nav); falls back to the
+  // original Planner/Agenda pair if nothing's chosen yet. Thoughts opens its
+  // own sheet, so it's never part of this configurable set.
+  const mobileNavHrefs = settings.mobile_nav && settings.mobile_nav.length > 0 ? settings.mobile_nav : ["/app", "/app/agenda"];
+  const mobileNav = mobileNavHrefs
+    .map((href) => MOBILE_NAV_CATALOG.find((i) => i.href === href))
+    .filter((i): i is (typeof MOBILE_NAV_CATALOG)[number] => Boolean(i));
 
   // FAB actions broadcast to whatever page is mounted; pages listen and open their own modal.
   const fire = (name: string) => window.dispatchEvent(new CustomEvent(name));

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED = ["/app", "/app/agenda", "/app/notes", "/app/pages", "/app/focus", "/app/accounts"];
+const ALLOWED = ["/app", "/app/agenda", "/app/tasks", "/app/notes", "/app/pages", "/app/focus", "/app/accounts"];
 
 export default async function Home() {
   const supabase = createClient();

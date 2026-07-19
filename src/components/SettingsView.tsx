@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2,
-  Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2, ShieldAlert,
+  Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2, ShieldAlert, ListChecks,
+  Mic, BookOpen, Zap, LayoutGrid,
 } from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
@@ -26,10 +27,27 @@ const AGENDA_VIEWS = [
 const PAGES = [
   { href: "/app", label: "Planner", icon: CalendarDays, hint: "Calendar + tasks side by side" },
   { href: "/app/agenda", label: "Agenda", icon: CalendarRange, hint: "A scrolling list of what's next" },
+  { href: "/app/tasks", label: "Tasks", icon: ListChecks, hint: "Every task, unscheduled first" },
   { href: "/app/notes", label: "Notes", icon: StickyNote, hint: "Your notebook" },
   { href: "/app/pages", label: "Pages", icon: Table2, hint: "Your CRM and project tables" },
   { href: "/app/focus", label: "Focus", icon: Timer, hint: "Pomodoro timer" },
 ];
+
+// Everything eligible for the mobile bottom bar's two configurable slots.
+// The FAB, Thoughts, and Report buttons are fixed and always present, so this
+// list only needs to cover pages that make sense as a quick one-tap jump.
+const MOBILE_NAV_OPTIONS = [
+  { href: "/app", label: "Planner", icon: CalendarDays },
+  { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
+  { href: "/app/tasks", label: "Tasks", icon: ListChecks },
+  { href: "/app/notes", label: "Notes", icon: StickyNote },
+  { href: "/app/pages", label: "Pages", icon: Table2 },
+  { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
+  { href: "/app/focus", label: "Focus", icon: Timer },
+  { href: "/app/automations", label: "Automations", icon: Zap },
+  { href: "/app/plaud", label: "Plaud", icon: Mic },
+];
+const MOBILE_NAV_MAX = 4;
 
 type KeyMeta = { token_prefix: string; created_at: string; last_used_at: string | null };
 
@@ -266,6 +284,52 @@ export default function SettingsView() {
                     <div className="truncate text-[11px] text-txt3">{p.hint}</div>
                   </div>
                   {active && <Check className="h-4 w-4 shrink-0 text-accent" />}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mb-6 rounded-xl border border-border bg-surface p-4">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <LayoutGrid className="h-4 w-4" /> Mobile bottom nav
+          </h2>
+          <p className="mb-3 text-xs text-txt3">
+            Pick up to {MOBILE_NAV_MAX} pages for one-tap access at the bottom of the screen on
+            mobile. Tap in the order you want them to appear; tap again to remove one.
+            The + button, Thoughts, and Report stay put either way.
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {MOBILE_NAV_OPTIONS.map((p) => {
+              const Icon = p.icon;
+              const current = settings.mobile_nav ?? [];
+              const idx = current.indexOf(p.href);
+              const active = idx !== -1;
+              const atMax = current.length >= MOBILE_NAV_MAX;
+              return (
+                <button
+                  key={p.href}
+                  disabled={!active && atMax}
+                  onClick={() => {
+                    const next = active
+                      ? current.filter((h) => h !== p.href)
+                      : [...current, p.href];
+                    if (next.length === 0) return; // keep at least one
+                    update({ mobile_nav: next });
+                    flash();
+                  }}
+                  className={clsx(
+                    "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-40",
+                    active ? "border-accent bg-accent/10 text-accent" : "border-border text-txt2 hover:bg-surface2"
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{p.label}</span>
+                  {active && (
+                    <span className="shrink-0 rounded-full bg-accent/20 px-1.5 text-[10px] font-semibold tabular-nums text-accent">
+                      {idx + 1}
+                    </span>
+                  )}
                 </button>
               );
             })}

@@ -202,4 +202,5 @@ export type UserSettings = {
   pomo_long: number;
   pomo_rounds: number;
   pomo_autostart: boolean;
+  mobile_nav: string[];
 };

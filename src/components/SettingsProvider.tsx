@@ -15,6 +15,7 @@ const DEFAULTS: Omit<UserSettings, "user_id"> = {
   pomo_long: 15,
   pomo_rounds: 4,
   pomo_autostart: false,
+  mobile_nav: ["/app", "/app/agenda"],
 };
 
 const LS_KEY = "cadence-settings";
@@ -62,6 +63,10 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
           pomo_long: data.pomo_long ?? 15,
           pomo_rounds: data.pomo_rounds ?? 4,
           pomo_autostart: data.pomo_autostart ?? false,
+          mobile_nav:
+            Array.isArray(data.mobile_nav) && data.mobile_nav.length > 0
+              ? data.mobile_nav
+              : DEFAULTS.mobile_nav,
         } as Omit<UserSettings, "user_id">;
         setSettings(s);
         try {
