@@ -13,11 +13,17 @@ export const maxDuration = 60;
 
 const MODEL = process.env.CADENCE_AI_MODEL || "claude-sonnet-5";
 
-// Only these carry a finished transcript + summary + action items worth
-// acting on. Everything else (recording.created, transcript.edited, the
+// summary.completed carries the fullest content (summary + action items +
+// transcript), but that post-processing step is Pro-only — on a free Pocket
+// account a recording only ever fires transcription.completed, with no
+// `summarizations` in the payload at all. Act on either: the content-builder
+// below already treats summary/action items as optional and falls back to
+// transcript alone. recording_id dedup means if a recording somehow fires
+// both (e.g. after a plan upgrade), only the first one to arrive does
+// anything. Everything else (recording.created, transcript.edited, the
 // various *.regenerated events, ...) gets a 200 with `ignored: true` so
 // Pocket doesn't retry it as a failure.
-const ACTIONABLE_EVENTS = new Set(["summary.completed"]);
+const ACTIONABLE_EVENTS = new Set(["summary.completed", "transcription.completed"]);
 
 type PocketWebhookPayload = {
   event: string;
