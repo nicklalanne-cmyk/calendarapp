@@ -52,6 +52,7 @@ const MOBILE_NAV_CATALOG = [
   { href: "/app/focus", label: "Focus", icon: Timer },
   { href: "/app/automations", label: "Automations", icon: Zap },
   { href: "/app/plaud", label: "Plaud", icon: Mic },
+  { href: "/app/finance", label: "Finance", icon: Wallet },
 ];
 
 export default function AppShell({
@@ -182,10 +183,6 @@ export default function AppShell({
     { href: "/app/pages", label: "Pages", icon: Table2 },
     { href: "/app/plaud", label: "Plaud", icon: Mic },
   ];
-  // Finance is Nick-only for now (personal bank data, no sharing model built
-  // yet) — gated on email rather than a settings flag since it needs to be
-  // invisible to Gaby's account, not just empty for her.
-  const financeEnabled = email === "nicklalanne@gmail.com";
   type NavLink = { href: string; label: string; icon: React.ElementType };
   type NavGroup = { group: string; label: string; icon: React.ElementType; children: NavLink[] };
   const nav: (NavLink | NavGroup)[] = [
@@ -195,7 +192,7 @@ export default function AppShell({
     { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
     { href: "/app/focus", label: "Focus", icon: Timer },
     { href: "/app/automations", label: "Automations", icon: Zap },
-    ...(financeEnabled ? [{ href: "/app/finance", label: "Finance", icon: Wallet }] : []),
+    { href: "/app/finance", label: "Finance", icon: Wallet },
   ];
   // User-configurable (Settings → Mobile bottom nav); falls back to the
   // original Planner/Agenda pair if nothing's chosen yet. Thoughts opens its

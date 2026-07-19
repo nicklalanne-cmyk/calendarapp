@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   CalendarDays, CalendarRange, StickyNote, Link2, Home, Check, PenLine, Timer, Table2,
   Bell, ChevronRight, Sparkles, Copy, Download, KeyRound, Trash2, ShieldAlert, ListChecks,
-  Mic, BookOpen, Zap, LayoutGrid,
+  Mic, BookOpen, Zap, LayoutGrid, Wallet,
 } from "lucide-react";
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
@@ -31,6 +31,7 @@ const PAGES = [
   { href: "/app/notes", label: "Notes", icon: StickyNote, hint: "Your notebook" },
   { href: "/app/pages", label: "Pages", icon: Table2, hint: "Your CRM and project tables" },
   { href: "/app/focus", label: "Focus", icon: Timer, hint: "Pomodoro timer" },
+  { href: "/app/finance", label: "Finance", icon: Wallet, hint: "Bank accounts, budgets, net worth" },
 ];
 
 // Everything eligible for the mobile bottom bar's two configurable slots.
@@ -46,6 +47,7 @@ const MOBILE_NAV_OPTIONS = [
   { href: "/app/focus", label: "Focus", icon: Timer },
   { href: "/app/automations", label: "Automations", icon: Zap },
   { href: "/app/plaud", label: "Plaud", icon: Mic },
+  { href: "/app/finance", label: "Finance", icon: Wallet },
 ];
 const MOBILE_NAV_MAX = 4;
 

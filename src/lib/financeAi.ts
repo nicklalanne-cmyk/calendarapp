@@ -47,19 +47,31 @@ async function callClaude(
 
 export type TransactionCleanupResult = { transaction_id: string; clean_name: string; clean_category: string };
 
+// Cap per Claude call — keeps latency well under Vercel's function timeout
+// and, more importantly, keeps the model's output short enough that it
+// doesn't garble transaction_ids when echoing them back (see below).
+const CLEANUP_BATCH_SIZE = 20;
+
 export async function cleanTransactions(
   apiKey: string,
   transactions: SyncedTransaction[]
 ): Promise<TransactionCleanupResult[]> {
   if (transactions.length === 0) return [];
+  // The model is NOT asked to echo back transaction_id — on larger batches
+  // it would occasionally transcribe Plaid's long random IDs with a
+  // dropped/swapped character, which silently failed every update matched
+  // by that id (this is why the first version of this feature "didn't do
+  // much"). Instead we rely on the model preserving input order/count
+  // (explicitly instructed below) and zip the results back to the real
+  // transaction_ids ourselves by array index — no id transcription, no
+  // silent mismatches.
   const system = `You clean up raw bank transaction data for display in a personal finance app. For each transaction, produce:
 - clean_name: a short, human-readable merchant name — strip POS/terminal codes, store numbers, city/state suffixes, processor prefixes like "SQ *", "TST*", "PAYPAL *", trailing digits, etc. (e.g. "SQ *TST-JOES PIZZA 04821" -> "Joe's Pizza", "AMAZON.COM*A1B2C3D4E" -> "Amazon").
 - clean_category: a short plain-English category, 2-3 words, Title Case (e.g. "Groceries", "Ride Share", "Streaming Service", "Rent", "Coffee Shop").
-Respond with ONLY a JSON array, no prose, no markdown fences, matching this exact shape and the same order/count as the input:
-[{"transaction_id": "...", "clean_name": "...", "clean_category": "..."}]`;
+Respond with ONLY a JSON array, no prose, no markdown fences, no transaction ids — just the two fields per item, in the SAME ORDER as the input array (item 1 in -> item 1 out), with exactly one output item per input item:
+[{"clean_name": "...", "clean_category": "..."}]`;
   const userMsg = JSON.stringify(
     transactions.map((t) => ({
-      transaction_id: t.transaction_id,
       raw_name: t.name,
       merchant_name: t.merchant_name,
       amount: t.amount,
@@ -67,14 +79,33 @@ Respond with ONLY a JSON array, no prose, no markdown fences, matching this exac
     }))
   );
   const text = await callClaude(apiKey, system, [{ role: "user", content: userMsg }], 4096);
+  let parsed: { clean_name: string; clean_category: string }[];
   try {
     const start = text.indexOf("[");
     const end = text.lastIndexOf("]");
     if (start === -1 || end === -1) return [];
-    return JSON.parse(text.slice(start, end + 1));
+    parsed = JSON.parse(text.slice(start, end + 1));
   } catch {
     return [];
   }
+  if (!Array.isArray(parsed) || parsed.length !== transactions.length) return [];
+  return parsed.map((r, i) => ({
+    transaction_id: transactions[i].transaction_id,
+    clean_name: r.clean_name,
+    clean_category: r.clean_category,
+  }));
+}
+
+async function applyCleanup(db: SupabaseClient, userId: string, batch: SyncedTransaction[], apiKey: string): Promise<number> {
+  const results = await cleanTransactions(apiKey, batch);
+  for (const r of results) {
+    await db
+      .from("plaid_transactions")
+      .update({ clean_name: r.clean_name, clean_category: r.clean_category })
+      .eq("transaction_id", r.transaction_id)
+      .eq("user_id", userId);
+  }
+  return results.length;
 }
 
 /** Cleans whatever transactions a sync just added/modified, if the user has
@@ -89,20 +120,25 @@ export async function cleanupNewTransactions(
   const apiKey = await getFinanceAiApiKey(db, userId);
   if (!apiKey) return 0;
   try {
-    const batch = transactions.slice(0, 50);
-    const results = await cleanTransactions(apiKey, batch);
-    for (const r of results) {
-      if (!r.transaction_id) continue;
-      await db
-        .from("plaid_transactions")
-        .update({ clean_name: r.clean_name, clean_category: r.clean_category })
-        .eq("transaction_id", r.transaction_id)
-        .eq("user_id", userId);
-    }
-    return results.length;
+    return await applyCleanup(db, userId, transactions.slice(0, CLEANUP_BATCH_SIZE), apiKey);
   } catch {
     return 0;
   }
+}
+
+/** Manual backfill batch size — matches CLEANUP_BATCH_SIZE so a single
+ * "Clean up" click stays fast and reliable; the caller loops via the
+ * `remaining` flag for older histories. */
+export const MANUAL_CLEANUP_BATCH_SIZE = CLEANUP_BATCH_SIZE;
+
+export async function cleanupTransactionBatch(
+  db: SupabaseClient,
+  userId: string,
+  batch: { transaction_id: string; name: string; merchant_name: string | null; amount: number; category: string[] | null }[]
+): Promise<number> {
+  const apiKey = await getFinanceAiApiKey(db, userId);
+  if (!apiKey) throw new Error("No AI assistant key configured yet");
+  return applyCleanup(db, userId, batch, apiKey);
 }
 
 // --- Financial planner chat assistant -----------------------------------
