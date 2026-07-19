@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/google/session";
 import { syncPlaidItem, type PlaidItemRow } from "@/lib/plaid";
+import { checkBillReminders } from "@/lib/plaidReminders";
 
 // Manual "Sync now" button in the Finance page. RLS already scopes
 // plaid_items to the signed-in user, so this only ever touches their own
@@ -29,5 +30,10 @@ export async function POST() {
     }
   }
 
-  return NextResponse.json({ ok: !anyError, results });
+  let reminders = 0;
+  if (!anyError) {
+    reminders = await checkBillReminders(supabase, user.id).catch(() => 0);
+  }
+
+  return NextResponse.json({ ok: !anyError, results, reminders });
 }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { syncPlaidItem, type PlaidItemRow } from "@/lib/plaid";
+import { checkBillReminders } from "@/lib/plaidReminders";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -34,9 +35,11 @@ export async function GET(request: NextRequest) {
   const items = (data as PlaidItemRow[] | null) ?? [];
 
   const results: Record<string, unknown> = {};
+  const usersSynced = new Set<string>();
   for (const item of items) {
     try {
       results[item.item_id] = await syncPlaidItem(db, item);
+      usersSynced.add(item.user_id);
     } catch (e) {
       const msg = (e as Error).message;
       results[item.item_id] = { error: msg };
@@ -44,5 +47,14 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ items: items.length, results });
+  const reminders: Record<string, number> = {};
+  for (const userId of usersSynced) {
+    try {
+      reminders[userId] = await checkBillReminders(db, userId);
+    } catch {
+      reminders[userId] = 0;
+    }
+  }
+
+  return NextResponse.json({ items: items.length, results, reminders });
 }

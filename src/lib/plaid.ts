@@ -119,6 +119,7 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow) {
   // Refresh account balances every sync — cheap, and keeps the summary cards
   // accurate even on syncs where nothing transactional changed.
   const accountsRes = await client.accountsGet({ access_token: item.access_token });
+  const today = new Date().toISOString().slice(0, 10);
   for (const acc of accountsRes.data.accounts) {
     await db.from("plaid_accounts").upsert(
       {
@@ -136,6 +137,17 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow) {
         updated_at: new Date().toISOString(),
       },
       { onConflict: "account_id" }
+    );
+    // One snapshot per account per day — the running history behind the net
+    // worth trend line. Upsert so re-syncing the same day just refreshes it.
+    await db.from("plaid_balance_snapshots").upsert(
+      {
+        user_id: item.user_id,
+        account_id: acc.account_id,
+        date: today,
+        balance: acc.balances.current,
+      },
+      { onConflict: "account_id,date" }
     );
   }
 
@@ -193,6 +205,14 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow) {
     .eq("id", item.id);
 
   return { accounts: accountsRes.data.accounts.length, added, modified, removed };
+}
+
+// Plaid account `type`: depository/investment/other are assets, credit/loan
+// are liabilities. Used for the net worth summary (assets minus liabilities)
+// so a credit card or mortgage balance subtracts instead of adding.
+const LIABILITY_ACCOUNT_TYPES = new Set(["credit", "loan"]);
+export function isLiabilityAccount(type: string | null): boolean {
+  return !!type && LIABILITY_ACCOUNT_TYPES.has(type);
 }
 
 /** Groups recent transactions by merchant + rounded amount, flags anything

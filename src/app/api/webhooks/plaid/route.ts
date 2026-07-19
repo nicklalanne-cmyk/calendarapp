@@ -7,6 +7,7 @@ import {
   verifyPlaidWebhook,
   type PlaidItemRow,
 } from "@/lib/plaid";
+import { checkBillReminders } from "@/lib/plaidReminders";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,7 +66,8 @@ export async function POST(request: NextRequest) {
   if (SYNC_EVENTS.has(code)) {
     try {
       const result = await syncPlaidItem(db, itemRow);
-      return NextResponse.json({ ok: true, synced: result });
+      const reminders = await checkBillReminders(db, itemRow.user_id).catch(() => 0);
+      return NextResponse.json({ ok: true, synced: result, reminders });
     } catch (e) {
       const msg = (e as Error).message;
       await db.from("plaid_items").update({ status: "error", error: msg }).eq("id", itemRow.id);
