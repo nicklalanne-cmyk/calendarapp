@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, GripVertical, Archive, ArchiveRestore } from "lucide-react";
 import clsx from "clsx";
 import PropertyCell from "@/components/pages/PropertyCell";
 import PropertyMenu from "@/components/pages/PropertyMenu";
@@ -27,6 +27,10 @@ export type ViewProps = {
   onSaveProperty: (id: string, patch: Partial<PageProperty>) => void;
   onDeleteProperty: (id: string) => void;
   onSetGroupBy: (id: string | null) => void;
+  /** Archives (or restores, if already archived) a record — hides it from the default view. */
+  onArchiveRecord?: (r: PageRecord, archived: boolean) => void;
+  /** True when the view is currently showing archived rows instead of active ones. */
+  showArchived?: boolean;
 };
 
 /** Split records into groups by the group_by select property. */
@@ -94,7 +98,7 @@ export function TableView(v: ViewProps) {
               )}
 
               {isOpen && (
-                <table className="w-full border-collapse">
+                <table className="w-full table-fixed border-collapse">
                   <thead>
                     <tr className="border-b border-border">
                       <th className="w-[240px] min-w-[200px] px-1 pb-1 text-left md:w-[280px]">
@@ -141,6 +145,19 @@ export function TableView(v: ViewProps) {
                             >
                               <GripVertical className="h-3.5 w-3.5" />
                             </button>
+                            {v.onArchiveRecord && (
+                              <button
+                                onClick={() => v.onArchiveRecord!(r, !r.archived_at)}
+                                title={r.archived_at ? "Restore row" : "Archive row"}
+                                className="shrink-0 rounded p-0.5 text-txt3 opacity-30 transition-opacity hover:text-txt group-hover:opacity-100"
+                              >
+                                {r.archived_at ? (
+                                  <ArchiveRestore className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Archive className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            )}
                             <input
                               value={r.title}
                               onChange={(e) => v.onPatchRecord(r.id, { title: e.target.value })}

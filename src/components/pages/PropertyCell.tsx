@@ -214,6 +214,7 @@ export default function PropertyCell({
   const face = (
     <button
       onClick={() => setEditing(true)}
+      title={display || undefined}
       className={clsx(
         "min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-sm hover:bg-surface2",
         !display && "text-txt3",
