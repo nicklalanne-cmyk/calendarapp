@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Lightbulb, Bug, Check, Loader2, Undo2, Inbox, Trash2 } from "lucide-react";
+import { Lightbulb, Bug, Check, Loader2, Undo2, Inbox, Trash2, Sparkles, AlertTriangle } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -15,6 +15,10 @@ type Item = {
   created_at: string;
   cleared_at: string | null;
   image_paths: string[] | null;
+  handled_by_ai: boolean;
+  ai_summary: string | null;
+  ai_commit: string | null;
+  ai_attempted_at: string | null;
 };
 
 // Same cached-signed-URL pattern as FeedbackOverlay's thumbnails and
@@ -70,7 +74,9 @@ export default function FeedbackInbox() {
 
     const { data } = await supabase
       .from("feedback")
-      .select("id,kind,body,status,user_email,created_at,cleared_at,image_paths")
+      .select(
+        "id,kind,body,status,user_email,created_at,cleared_at,image_paths,handled_by_ai,ai_summary,ai_commit,ai_attempted_at"
+      )
       .order("created_at", { ascending: false });
     setItems((data as Item[]) ?? []);
     setLoading(false);
@@ -244,6 +250,40 @@ export default function FeedbackInbox() {
                     {i.image_paths.map((p) => (
                       <FeedbackThumb key={p} path={p} />
                     ))}
+                  </div>
+                )}
+
+                {/* Hourly automation's audit trail — auto-shipped changes show what
+                    happened and link to the commit; items it looked at but couldn't
+                    safely handle on its own show why, so it stays a nudge to review
+                    rather than a silent no-op. */}
+                {i.handled_by_ai && i.ai_summary && (
+                  <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-accent/10 px-2.5 py-2 text-xs text-txt2">
+                    <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-accent">Auto-shipped</span> — {i.ai_summary}
+                      {i.ai_commit && (
+                        <>
+                          {" "}
+                          <a
+                            href={`https://github.com/nicklalanne-cmyk/calendarapp/commit/${i.ai_commit}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline hover:text-accent"
+                          >
+                            {i.ai_commit.slice(0, 7)}
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {!i.handled_by_ai && i.ai_attempted_at && i.ai_summary && (
+                  <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-yellow-500/10 px-2.5 py-2 text-xs text-txt2">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-yellow-600" />
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-yellow-700">Needs a human look</span> — {i.ai_summary}
+                    </div>
                   </div>
                 )}
               </div>
