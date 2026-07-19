@@ -1,5 +1,14 @@
-// No fetch handler on purpose — the browser handles every request normally,
-// so we can never serve a stale shell or cache auth.
+// Pure network passthrough — no caching, so we can never serve a stale shell
+// or cache auth. This exists only because Chrome's automatic "Install app"
+// eligibility check on Android looks for *a* fetch handler to be present at
+// all (it doesn't care whether it actually caches anything); without one,
+// Chrome silently downgrades "Add to Home Screen" to a plain bookmark
+// shortcut, which is why the URL bar was still showing up even though the
+// manifest itself was already correct.
+self.addEventListener("fetch", (event) => {
+  event.respondWith(fetch(event.request));
+});
+
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil(
