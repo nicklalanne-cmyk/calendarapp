@@ -41,6 +41,8 @@ export type PageRecord = {
   links: Record<string, CellLink>;
   position: number;
   created_at: string;
+  /** set when the row has been archived (hidden by default, recoverable) — mirrors deleted_at */
+  archived_at?: string | null;
 };
 
 export type PageView = "table" | "board" | "list" | "calendar";

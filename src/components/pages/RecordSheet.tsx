@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import PropertyCell from "@/components/pages/PropertyCell";
 import type { PageProperty, PageRecord } from "@/lib/pages";
 
@@ -11,6 +11,7 @@ export default function RecordSheet({
   onClose,
   onChange,
   onDelete,
+  onArchive,
   dateMenuFor,
 }: {
   record: PageRecord;
@@ -18,6 +19,7 @@ export default function RecordSheet({
   onClose: () => void;
   onChange: (patch: { title?: string; props?: Record<string, unknown> }) => void;
   onDelete: () => void;
+  onArchive?: () => void;
   dateMenuFor?: (r: PageRecord, p: PageProperty) => React.ReactNode;
 }) {
   return (
@@ -62,12 +64,30 @@ export default function RecordSheet({
           )}
         </div>
 
-        <button
-          onClick={onDelete}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm text-txt3 active:bg-surface2 hover:text-danger"
-        >
-          <Trash2 className="h-4 w-4" /> Delete record
-        </button>
+        <div className="mt-5 flex gap-2">
+          {onArchive && (
+            <button
+              onClick={onArchive}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm text-txt3 active:bg-surface2 hover:text-txt"
+            >
+              {record.archived_at ? (
+                <>
+                  <ArchiveRestore className="h-4 w-4" /> Restore
+                </>
+              ) : (
+                <>
+                  <Archive className="h-4 w-4" /> Archive
+                </>
+              )}
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm text-txt3 active:bg-surface2 hover:text-danger"
+          >
+            <Trash2 className="h-4 w-4" /> Delete record
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Table2, Kanban, List as ListIcon, CalendarDays, ArrowLeft, Trash2, Plus, Loader2,
-  Search, ArrowUpDown, X, Star, Users,
+  Search, ArrowUpDown, X, Star, Users, Archive as ArchiveIcon,
 } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
@@ -41,6 +41,7 @@ export default function PageView({ pageId }: { pageId: string }) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<PageRecord | null>(null);
   const [query, setQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [linkedTasks, setLinkedTasks] = useState<Record<string, Task>>({});
   const [cellBusy, setCellBusy] = useState<string | null>(null);
   const [picking, setPicking] = useState<{ recordId: string; propId: string } | null>(null);
@@ -406,6 +407,15 @@ export default function PageView({ pageId }: { pageId: string }) {
     });
   };
 
+  const archiveRecord = async (r: PageRecord, archived: boolean) => {
+    const archived_at = archived ? new Date().toISOString() : null;
+    setRecords((cur) => cur.map((x) => (x.id === r.id ? { ...x, archived_at } : x)));
+    setOpen((cur) => (cur && cur.id === r.id ? { ...cur, archived_at } : cur));
+    const { error } = await supabase.from("page_records").update({ archived_at }).eq("id", r.id);
+    if (error) return toast(error.message, "error");
+    toast(archived ? `Archived “${r.title || "Untitled"}”` : `Restored “${r.title || "Untitled"}”`);
+  };
+
   const deletePage = async () => {
     if (!page) return;
     await supabase
@@ -424,10 +434,13 @@ export default function PageView({ pageId }: { pageId: string }) {
     });
   };
 
+  const archivedCount = useMemo(() => records.filter((r) => r.archived_at).length, [records]);
+
   const visible = useMemo(() => {
+    const byArchived = records.filter((r) => (showArchived ? !!r.archived_at : !r.archived_at));
     const q = query.trim().toLowerCase();
-    if (!q) return records;
-    return records.filter((r) => {
+    if (!q) return byArchived;
+    return byArchived.filter((r) => {
       if (r.title.toLowerCase().includes(q)) return true;
       // search across every property value, resolving select ids to their labels
       return props.some((p) => {
@@ -456,11 +469,13 @@ export default function PageView({ pageId }: { pageId: string }) {
             onSaveProperty: saveProperty,
             onDeleteProperty: deleteProperty,
             onSetGroupBy: (id) => savePage({ group_by: id }, true),
+            onArchiveRecord: archiveRecord,
+            showArchived,
             dateMenuFor,
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [page, props, visible]
+    [page, props, visible, showArchived]
   );
 
   if (loading) {
@@ -624,12 +639,32 @@ export default function PageView({ pageId }: { pageId: string }) {
                 </button>
               )}
             </div>
+
+            <button
+              onClick={() => setShowArchived((s) => !s)}
+              title={showArchived ? "Show active rows" : "Show archived rows"}
+              className={clsx(
+                "flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs",
+                showArchived
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border bg-surface text-txt3 hover:text-txt"
+              )}
+            >
+              <ArchiveIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">Archived</span>
+              {archivedCount > 0 && <span>{archivedCount}</span>}
+            </button>
           </div>
         </div>
 
         {query && (
           <p className="pt-1.5 text-xs text-txt3">
             {visible.length} of {records.length} matching “{query}”
+          </p>
+        )}
+        {showArchived && !query && (
+          <p className="pt-1.5 text-xs text-txt3">
+            Showing {visible.length} archived row{visible.length === 1 ? "" : "s"} — click a row to restore it.
           </p>
         )}
       </header>
@@ -690,6 +725,7 @@ export default function PageView({ pageId }: { pageId: string }) {
           onClose={() => setOpen(null)}
           onChange={(patch) => patchRecord(open.id, patch)}
           onDelete={() => deleteRecord(open)}
+          onArchive={() => archiveRecord(open, !open.archived_at)}
         />
       )}
     </div>
