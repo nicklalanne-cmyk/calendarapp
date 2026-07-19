@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/plaud-sync",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/plaid-sync",
+      "schedule": "0 * * * *"
     }
   ]
 }

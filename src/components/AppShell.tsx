@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronUp,
   ListChecks,
+  Wallet,
 } from "lucide-react";
 import CommandBar from "@/components/CommandBar";
 import Reminders from "@/components/Reminders";
@@ -181,14 +182,21 @@ export default function AppShell({
     { href: "/app/pages", label: "Pages", icon: Table2 },
     { href: "/app/plaud", label: "Plaud", icon: Mic },
   ];
-  const nav = [
+  // Finance is Nick-only for now (personal bank data, no sharing model built
+  // yet) — gated on email rather than a settings flag since it needs to be
+  // invisible to Gaby's account, not just empty for her.
+  const financeEnabled = email === "nicklalanne@gmail.com";
+  type NavLink = { href: string; label: string; icon: React.ElementType };
+  type NavGroup = { group: string; label: string; icon: React.ElementType; children: NavLink[] };
+  const nav: (NavLink | NavGroup)[] = [
     { href: "/app", label: "Planner", icon: CalendarDays },
     { href: "/app/agenda", label: "Agenda", icon: CalendarRange },
     { group: "thoughts", label: "Thoughts", icon: Brain, children: thoughtsChildren },
     { href: "/app/notebooks", label: "Notebooks", icon: BookOpen },
     { href: "/app/focus", label: "Focus", icon: Timer },
     { href: "/app/automations", label: "Automations", icon: Zap },
-  ] as const;
+    ...(financeEnabled ? [{ href: "/app/finance", label: "Finance", icon: Wallet }] : []),
+  ];
   // User-configurable (Settings → Mobile bottom nav); falls back to the
   // original Planner/Agenda pair if nothing's chosen yet. Thoughts opens its
   // own sheet, so it's never part of this configurable set.
