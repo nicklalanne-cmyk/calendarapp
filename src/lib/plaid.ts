@@ -9,6 +9,17 @@ export type PlaidCredentialsRow = {
   env: "sandbox" | "production";
 };
 
+/** A single added/modified transaction from one sync pass — passed to the
+ * (optional) AI cleanup step right after syncing, so it never needs a
+ * separate query for "what's new". */
+export type SyncedTransaction = {
+  transaction_id: string;
+  name: string;
+  merchant_name: string | null;
+  amount: number;
+  category: string[] | null;
+};
+
 export type PlaidItemRow = {
   id: string;
   user_id: string;
@@ -156,6 +167,7 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow) {
   let added = 0;
   let modified = 0;
   let removed = 0;
+  const synced: SyncedTransaction[] = [];
 
   while (hasMore) {
     const res = await client.transactionsSync({
@@ -166,6 +178,7 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow) {
     const page = res.data;
 
     for (const t of [...page.added, ...page.modified]) {
+      const category = t.personal_finance_category?.primary ? [t.personal_finance_category.primary] : t.category ?? null;
       await db.from("plaid_transactions").upsert(
         {
           user_id: item.user_id,
@@ -178,13 +191,20 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow) {
           authorized_date: t.authorized_date,
           merchant_name: t.merchant_name ?? null,
           name: t.name,
-          category: t.personal_finance_category?.primary ? [t.personal_finance_category.primary] : t.category ?? null,
+          category,
           pending: t.pending,
           payment_channel: t.payment_channel,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "transaction_id" }
       );
+      synced.push({
+        transaction_id: t.transaction_id,
+        name: t.name,
+        merchant_name: t.merchant_name ?? null,
+        amount: t.amount,
+        category,
+      });
     }
     added += page.added.length;
     modified += page.modified.length;
@@ -204,7 +224,7 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow) {
     .update({ cursor, status: "good", error: null, updated_at: new Date().toISOString() })
     .eq("id", item.id);
 
-  return { accounts: accountsRes.data.accounts.length, added, modified, removed };
+  return { accounts: accountsRes.data.accounts.length, added, modified, removed, transactions: synced };
 }
 
 // Plaid account `type`: depository/investment/other are assets, credit/loan

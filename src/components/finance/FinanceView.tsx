@@ -18,6 +18,9 @@ import {
   Download,
   CheckCircle2,
   X,
+  Sparkles,
+  Send,
+  Wand2,
 } from "lucide-react";
 import clsx from "clsx";
 import { toast } from "@/lib/toast";
@@ -57,7 +60,11 @@ type PlaidTransaction = {
   name: string;
   category: string[] | null;
   pending: boolean;
+  clean_name: string | null;
+  clean_category: string | null;
 };
+
+type ChatMessage = { role: "user" | "assistant"; content: string };
 
 type NetWorthSnapshot = { account_id: string; date: string; balance: number };
 type Budget = { id: string; category: string; monthly_limit: number };
@@ -108,6 +115,11 @@ export default function FinanceView() {
   const [addingBills, setAddingBills] = useState<Record<string, boolean>>({});
   const [budgetForm, setBudgetForm] = useState({ category: "", limit: "" });
   const [savingBudget, setSavingBudget] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
   // Present only when we've been bounced back here from a bank's OAuth login
   // page (Plaid appends this param to the redirect_uri).
   const [isOAuthReturn, setIsOAuthReturn] = useState(false);
@@ -318,6 +330,56 @@ export default function FinanceView() {
     setBudgets((b) => b.filter((x) => x.category !== category));
   };
 
+  const sendChatMessage = async () => {
+    const content = chatInput.trim();
+    if (!content || chatLoading) return;
+    const next = [...chatMessages, { role: "user" as const, content }];
+    setChatMessages(next);
+    setChatInput("");
+    setChatLoading(true);
+    setChatError(null);
+    try {
+      const res = await fetch("/api/plaid/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: next }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setChatError(j.error ?? "The assistant couldn't respond");
+        return;
+      }
+      setChatMessages((m) => [...m, { role: "assistant", content: j.reply }]);
+    } catch {
+      setChatError("The assistant couldn't respond");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const cleanUpTransactions = async () => {
+    setCleaning(true);
+    try {
+      const res = await fetch("/api/plaid/ai/clean", { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) return toast(j.error ?? "Couldn't clean up transactions", "error");
+      if (j.cleaned > 0) {
+        toast(`Cleaned up ${j.cleaned} transaction${j.cleaned === 1 ? "" : "s"}${j.remaining ? " · tap again for more" : ""}`);
+        await loadTransactions({
+          q: search || undefined,
+          account_id: accountFilter || undefined,
+          category: categoryFilter || undefined,
+          from: fromDate || undefined,
+          to: toDate || undefined,
+        });
+      } else {
+        toast("Transactions are already up to date");
+      }
+    } finally {
+      setCleaning(false);
+    }
+  };
+
   const totalBalance = useMemo(
     () => accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0),
     [accounts]
@@ -467,6 +529,55 @@ export default function FinanceView() {
         </div>
       ) : (
         <>
+          {/* financial planner assistant */}
+          <div className="mb-6 rounded-xl border border-border bg-surface p-4">
+            <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
+              <Sparkles className="h-4 w-4" /> Financial planner assistant
+            </h2>
+            {chatMessages.length === 0 ? (
+              <p className="mb-3 text-xs text-txt3">
+                Ask about your spending, budgets, or net worth — it can see your real account and transaction data.
+              </p>
+            ) : (
+              <div className="mb-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+                {chatMessages.map((m, i) => (
+                  <div
+                    key={i}
+                    className={clsx(
+                      "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                      m.role === "user" ? "ml-auto bg-accent text-white" : "bg-surface2 text-txt"
+                    )}
+                  >
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                  </div>
+                ))}
+                {chatLoading && <div className="max-w-[85%] rounded-lg bg-surface2 px-3 py-2 text-sm text-txt3">Thinking…</div>}
+              </div>
+            )}
+            {chatError && <p className="mb-2 text-xs text-danger">{chatError}</p>}
+            <div className="flex items-center gap-2">
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                  }
+                }}
+                placeholder="e.g. Am I overspending on dining out this month?"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+              <button
+                onClick={sendChatMessage}
+                disabled={chatLoading || !chatInput.trim()}
+                className="flex shrink-0 items-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accentSoft disabled:opacity-50"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
           {/* net worth */}
           <div className="mb-6 rounded-xl border border-border bg-surface p-4">
             <div className="mb-1 flex items-baseline justify-between">
@@ -718,6 +829,14 @@ export default function FinanceView() {
               <h2 className="mr-auto flex items-center gap-1.5 text-sm font-semibold">
                 <ListChecks className="h-4 w-4" /> Transactions
               </h2>
+              <button
+                onClick={cleanUpTransactions}
+                disabled={cleaning}
+                className="flex items-center gap-1 rounded-lg border border-border px-2 py-1.5 text-xs text-txt2 hover:bg-surface2 disabled:opacity-50"
+                title="Use AI to clean up merchant names and categories"
+              >
+                <Wand2 className={clsx("h-3.5 w-3.5", cleaning && "animate-pulse")} /> {cleaning ? "Cleaning…" : "Clean up"}
+              </button>
               <a
                 href={exportCsvUrl}
                 className="flex items-center gap-1 rounded-lg border border-border px-2 py-1.5 text-xs text-txt2 hover:bg-surface2"
@@ -778,11 +897,13 @@ export default function FinanceView() {
                 {transactions.map((t) => (
                   <div key={t.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-txt">{t.merchant_name || t.name}</div>
+                      <div className="truncate text-txt">{t.clean_name || t.merchant_name || t.name}</div>
                       <div className="text-xs text-txt3">
                         {new Date(t.date + "T00:00:00").toLocaleDateString()}
                         {t.pending ? " · pending" : ""}
-                        {t.category?.[0] ? ` · ${humanCategory(t.category[0])}` : ""}
+                        {t.clean_category || t.category?.[0]
+                          ? ` · ${t.clean_category || humanCategory(t.category![0])}`
+                          : ""}
                       </div>
                     </div>
                     <span

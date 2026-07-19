@@ -2,11 +2,21 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/google/session";
 
 function toCsv(rows: Record<string, unknown>[]) {
-  if (rows.length === 0) return "date,merchant,name,amount,category,account_id,pending\n";
+  const header = "date,merchant,clean_name,name,amount,category,clean_category,account_id,pending";
+  if (rows.length === 0) return header + "\n";
   const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const header = "date,merchant,name,amount,category,account_id,pending";
   const lines = rows.map((r) =>
-    [r.date, r.merchant_name, r.name, r.amount, (r.category as string[] | null)?.[0] ?? "", r.account_id, r.pending]
+    [
+      r.date,
+      r.merchant_name,
+      r.clean_name,
+      r.name,
+      r.amount,
+      (r.category as string[] | null)?.[0] ?? "",
+      r.clean_category,
+      r.account_id,
+      r.pending,
+    ]
       .map(esc)
       .join(",")
   );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/google/session";
 import { syncPlaidItem, type PlaidItemRow } from "@/lib/plaid";
 import { checkBillReminders } from "@/lib/plaidReminders";
+import { cleanupNewTransactions } from "@/lib/financeAi";
 
 // Manual "Sync now" button in the Finance page. RLS already scopes
 // plaid_items to the signed-in user, so this only ever touches their own
@@ -19,9 +20,12 @@ export async function POST() {
 
   const results: Record<string, unknown> = {};
   let anyError = false;
+  let cleaned = 0;
   for (const item of items) {
     try {
-      results[item.institution_name ?? item.item_id] = await syncPlaidItem(supabase, item);
+      const result = await syncPlaidItem(supabase, item);
+      results[item.institution_name ?? item.item_id] = result;
+      cleaned += await cleanupNewTransactions(supabase, user.id, result.transactions).catch(() => 0);
     } catch (e) {
       anyError = true;
       const msg = (e as Error).message;
@@ -35,5 +39,5 @@ export async function POST() {
     reminders = await checkBillReminders(supabase, user.id).catch(() => 0);
   }
 
-  return NextResponse.json({ ok: !anyError, results, reminders });
+  return NextResponse.json({ ok: !anyError, results, reminders, cleaned });
 }
