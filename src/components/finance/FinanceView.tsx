@@ -120,6 +120,7 @@ export default function FinanceView() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
+  const [txTab, setTxTab] = useState<"in" | "out" | "transfers">("out");
   // Present only when we've been bounced back here from a bank's OAuth login
   // page (Plaid appends this param to the redirect_uri).
   const [isOAuthReturn, setIsOAuthReturn] = useState(false);
@@ -418,29 +419,65 @@ export default function FinanceView() {
 
   const thisMonthKey = useMemo(() => new Date().toISOString().slice(0, 7), []);
 
+  // Detects moves between Nick's own connected accounts: an outflow on one
+  // account paired with an inflow of the same magnitude on a *different*
+  // account within a couple days of each other (e.g. checking -> savings).
+  // Doesn't rely on Plaid's TRANSFER_IN/OUT category alone since that also
+  // covers transfers to other people (Venmo, wires, etc.) — pairing against
+  // a real matching leg on another of his accounts is a closer match to
+  // "between my own accounts."
+  const transferIds = useMemo(() => {
+    const ids = new Set<string>();
+    const byAmount = new Map<number, PlaidTransaction[]>();
+    for (const t of transactions) {
+      const key = Math.round(Math.abs(t.amount) * 100);
+      const arr = byAmount.get(key) ?? [];
+      arr.push(t);
+      byAmount.set(key, arr);
+    }
+    for (const group of byAmount.values()) {
+      if (group.length < 2) continue;
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          const a = group[i];
+          const b = group[j];
+          if (a.account_id === b.account_id) continue;
+          if (Math.sign(a.amount) === Math.sign(b.amount)) continue;
+          const days = Math.abs(new Date(a.date).getTime() - new Date(b.date).getTime()) / 86400000;
+          if (days > 2) continue;
+          ids.add(a.id);
+          ids.add(b.id);
+        }
+      }
+    }
+    return ids;
+  }, [transactions]);
+
   const cashFlow = useMemo(() => {
     let income = 0;
     let spending = 0;
     for (const t of transactions) {
       if (monthKey(t.date) !== thisMonthKey) continue;
+      if (transferIds.has(t.id)) continue; // moving money between your own accounts isn't income or spending
       if (t.amount < 0) income += -t.amount; // Plaid: negative amount = money in
       else spending += t.amount;
     }
     return { income, spending, net: income - spending };
-  }, [transactions, thisMonthKey]);
+  }, [transactions, thisMonthKey, transferIds]);
 
   const spendingByCategory = useMemo(() => {
     const totals = new Map<string, number>();
     for (const t of transactions) {
       if (monthKey(t.date) !== thisMonthKey) continue;
       if (t.amount <= 0) continue; // only outflows
+      if (transferIds.has(t.id)) continue;
       const cat = t.category?.[0] ?? "Other";
       totals.set(cat, (totals.get(cat) ?? 0) + t.amount);
     }
     return Array.from(totals.entries())
       .sort(([, a], [, b]) => b - a)
       .slice(0, 8);
-  }, [transactions, thisMonthKey]);
+  }, [transactions, thisMonthKey, transferIds]);
 
   const maxCategorySpend = spendingByCategory[0]?.[1] ?? 0;
 
@@ -449,6 +486,7 @@ export default function FinanceView() {
     for (const t of transactions) {
       if (monthKey(t.date) !== thisMonthKey) continue;
       if (t.amount <= 0) continue;
+      if (transferIds.has(t.id)) continue;
       const cat = t.category?.[0] ?? "Other";
       spendByCat.set(cat, (spendByCat.get(cat) ?? 0) + t.amount);
     }
@@ -457,7 +495,19 @@ export default function FinanceView() {
       spent: spendByCat.get(b.category) ?? 0,
       pct: Math.min(100, ((spendByCat.get(b.category) ?? 0) / b.monthly_limit) * 100),
     }));
-  }, [budgets, transactions, thisMonthKey]);
+  }, [budgets, transactions, thisMonthKey, transferIds]);
+
+  const txTabbed = useMemo(() => {
+    const out: PlaidTransaction[] = [];
+    const inn: PlaidTransaction[] = [];
+    const transfers: PlaidTransaction[] = [];
+    for (const t of transactions) {
+      if (transferIds.has(t.id)) transfers.push(t);
+      else if (t.amount > 0) out.push(t);
+      else inn.push(t);
+    }
+    return { in: inn, out, transfers };
+  }, [transactions, transferIds]);
 
   const recurring: RecurringBill[] = useMemo(() => detectRecurringBills(transactions), [transactions]);
 
@@ -888,13 +938,35 @@ export default function FinanceView() {
                 )}
               </div>
             )}
+            <div className="mb-3 flex gap-1 rounded-lg bg-surface2 p-1 text-xs">
+              {(
+                [
+                  { key: "in", label: "In", count: txTabbed.in.length },
+                  { key: "out", label: "Out", count: txTabbed.out.length },
+                  { key: "transfers", label: "Transfers", count: txTabbed.transfers.length },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setTxTab(tab.key)}
+                  className={clsx(
+                    "flex-1 rounded-md px-2 py-1.5 font-medium transition-colors",
+                    txTab === tab.key ? "bg-surface text-txt shadow-sm" : "text-txt3 hover:text-txt2"
+                  )}
+                >
+                  {tab.label} <span className="tabular-nums opacity-70">({tab.count})</span>
+                </button>
+              ))}
+            </div>
             {txLoading ? (
               <p className="text-sm text-txt3">Loading…</p>
-            ) : transactions.length === 0 ? (
-              <p className="text-sm text-txt3">No transactions yet.</p>
+            ) : txTabbed[txTab].length === 0 ? (
+              <p className="text-sm text-txt3">
+                {transactions.length === 0 ? "No transactions yet." : `No ${txTab === "in" ? "incoming" : txTab} transactions in this range.`}
+              </p>
             ) : (
               <div className="space-y-1">
-                {transactions.map((t) => (
+                {txTabbed[txTab].map((t) => (
                   <div key={t.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-txt">{t.clean_name || t.merchant_name || t.name}</div>
