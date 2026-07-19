@@ -120,6 +120,7 @@ export default function FinanceView() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
+  const [cleaningCount, setCleaningCount] = useState(0);
   const [txTab, setTxTab] = useState<"in" | "out" | "transfers">("out");
   // Present only when we've been bounced back here from a bank's OAuth login
   // page (Plaid appends this param to the redirect_uri).
@@ -358,14 +359,30 @@ export default function FinanceView() {
     }
   };
 
+  // Runs the AI cleanup in batches of 20 (matching the server's per-call
+  // limit) and automatically kicks off the next batch as soon as one
+  // finishes, until the server says there's nothing left — so one tap
+  // cleans the whole history instead of needing to be re-clicked per batch.
   const cleanUpTransactions = async () => {
     setCleaning(true);
+    setCleaningCount(0);
+    let total = 0;
     try {
-      const res = await fetch("/api/plaid/ai/clean", { method: "POST" });
-      const j = await res.json();
-      if (!res.ok) return toast(j.error ?? "Couldn't clean up transactions", "error");
-      if (j.cleaned > 0) {
-        toast(`Cleaned up ${j.cleaned} transaction${j.cleaned === 1 ? "" : "s"}${j.remaining ? " · tap again for more" : ""}`);
+      // Safety cap so a server bug (e.g. `remaining` never going false)
+      // can't loop forever — 60 batches of 20 covers 1,200 transactions.
+      for (let i = 0; i < 60; i++) {
+        const res = await fetch("/api/plaid/ai/clean", { method: "POST" });
+        const j = await res.json();
+        if (!res.ok) {
+          toast(j.error ?? "Couldn't clean up transactions", "error");
+          break;
+        }
+        total += j.cleaned ?? 0;
+        setCleaningCount(total);
+        if (!j.remaining) break;
+      }
+      if (total > 0) {
+        toast(`Cleaned up ${total} transaction${total === 1 ? "" : "s"}`);
         await loadTransactions({
           q: search || undefined,
           account_id: accountFilter || undefined,
@@ -378,6 +395,7 @@ export default function FinanceView() {
       }
     } finally {
       setCleaning(false);
+      setCleaningCount(0);
     }
   };
 
@@ -885,7 +903,8 @@ export default function FinanceView() {
                 className="flex items-center gap-1 rounded-lg border border-border px-2 py-1.5 text-xs text-txt2 hover:bg-surface2 disabled:opacity-50"
                 title="Use AI to clean up merchant names and categories"
               >
-                <Wand2 className={clsx("h-3.5 w-3.5", cleaning && "animate-pulse")} /> {cleaning ? "Cleaning…" : "Clean up"}
+                <Wand2 className={clsx("h-3.5 w-3.5", cleaning && "animate-pulse")} />{" "}
+                {cleaning ? `Cleaning…${cleaningCount > 0 ? ` (${cleaningCount})` : ""}` : "Clean up"}
               </button>
               <a
                 href={exportCsvUrl}
