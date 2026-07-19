@@ -26,6 +26,11 @@ export async function POST() {
       products: PLAID_PRODUCTS,
       country_codes: PLAID_COUNTRY_CODES,
       language: "en",
+      // Required for OAuth-based institutions (Chase, BofA, Wells Fargo, ...)
+      // in production — after the user logs in at their bank, Plaid sends
+      // them back here to resume Link. Must exactly match a redirect URI
+      // registered in the Plaid dashboard.
+      redirect_uri: "https://cadenceplanner.app/app/finance",
     });
     return NextResponse.json({ link_token: res.data.link_token });
   } catch (e) {

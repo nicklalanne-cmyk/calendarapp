@@ -52,6 +52,12 @@ type PlaidTransaction = {
   pending: boolean;
 };
 
+// Persists the in-progress link_token across the redirect to the bank's own
+// login page and back — OAuth institutions (Chase, BofA, Wells Fargo, ...)
+// leave this page entirely, so React state alone can't survive the round
+// trip. Plaid's own recommended pattern for a plain web integration.
+const LINK_TOKEN_LS_KEY = "cadence-plaid-link-token";
+
 function fmtMoney(n: number | null, currency?: string | null) {
   if (n === null || n === undefined) return "—";
   try {
@@ -71,6 +77,20 @@ export default function FinanceView() {
   const [connecting, setConnecting] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  // Present only when we've been bounced back here from a bank's OAuth login
+  // page (Plaid appends this param to the redirect_uri).
+  const [isOAuthReturn, setIsOAuthReturn] = useState(false);
+
+  // Resume an in-progress OAuth Link session on return from the bank.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.location.search.includes("oauth_state_id=")) return;
+    const saved = localStorage.getItem(LINK_TOKEN_LS_KEY);
+    if (!saved) return;
+    setLinkToken(saved);
+    setIsOAuthReturn(true);
+    setConnecting(true);
+  }, []);
 
   const loadAccounts = useCallback(async () => {
     const res = await fetch("/api/plaid/accounts");
@@ -102,6 +122,7 @@ export default function FinanceView() {
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
+    ...(isOAuthReturn ? { receivedRedirectUri: typeof window !== "undefined" ? window.location.href : undefined } : {}),
     onSuccess: async (public_token, metadata) => {
       setConnecting(true);
       try {
@@ -118,9 +139,21 @@ export default function FinanceView() {
       } finally {
         setConnecting(false);
         setLinkToken(null);
+        setIsOAuthReturn(false);
+        localStorage.removeItem(LINK_TOKEN_LS_KEY);
+        // Strip ?oauth_state_id=... so a refresh doesn't try to resume again.
+        window.history.replaceState({}, "", window.location.pathname);
       }
     },
-    onExit: () => setLinkToken(null),
+    onExit: () => {
+      setLinkToken(null);
+      setConnecting(false);
+      setIsOAuthReturn(false);
+      localStorage.removeItem(LINK_TOKEN_LS_KEY);
+      if (window.location.search.includes("oauth_state_id=")) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    },
   });
 
   useEffect(() => {
@@ -136,6 +169,7 @@ export default function FinanceView() {
         setConnecting(false);
         return toast(j.error ?? "Couldn't start bank connection", "error");
       }
+      localStorage.setItem(LINK_TOKEN_LS_KEY, j.link_token);
       setLinkToken(j.link_token);
     } catch {
       setConnecting(false);
