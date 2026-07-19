@@ -666,6 +666,28 @@ export default function AgendaView() {
           .sort(taskOrderCmp)
       : [];
 
+  // Shift every subtask of a just-dragged parent by the same amount the
+  // parent's own order just moved, so they travel with it instead of being
+  // left behind at the old spot — the sort_order analogue of
+  // cascadeDueToSubtasks above.
+  const cascadeOrderToSubtasks = async (parentId: string, delta: number) => {
+    if (!delta) return;
+    const children = tasks.filter((x) => x.parent_id === parentId);
+    if (children.length === 0) return;
+    const updates = children.map((c) => ({ id: c.id, sort_order: taskOrderKey(c) + delta }));
+    setTasks((cur) =>
+      cur.map((x) => {
+        const u = updates.find((u) => u.id === x.id);
+        return u ? { ...x, sort_order: u.sort_order } : x;
+      })
+    );
+    const results = await Promise.all(
+      updates.map((u) => supabase.from("tasks").update({ sort_order: u.sort_order }).eq("id", u.id))
+    );
+    const err = results.find((r) => r.error)?.error;
+    if (err) toast(err.message, "error");
+  };
+
   // Drag a task onto another task row to reorder it — picks a sort_order value
   // that sits between the two rows it lands between (in the *effective* order,
   // i.e. taskOrderKey, not raw array index) so untouched siblings don't need to
@@ -680,6 +702,7 @@ export default function AgendaView() {
     dueSync?: boolean
   ) => {
     if (draggedId === targetTask.id) return;
+    const dragged = tasks.find((x) => x.id === draggedId);
     const ordered = [...list].sort(taskOrderCmp);
     const withoutDragged = ordered.filter((x) => x.id !== draggedId);
     const targetIdx = withoutDragged.findIndex((x) => x.id === targetTask.id);
@@ -715,6 +738,9 @@ export default function AgendaView() {
     }
     if (patch.due_date !== undefined) {
       await cascadeDueToSubtasks(draggedId, patch.due_date, patch.due_kind ?? "day");
+    }
+    if (dragged) {
+      await cascadeOrderToSubtasks(draggedId, newOrder - taskOrderKey(dragged));
     }
   };
 
