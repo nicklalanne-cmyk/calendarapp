@@ -312,7 +312,15 @@ export default function EventModal({
             {draft.location && (
               <div className="mb-3 flex items-center gap-2 text-sm text-txt2">
                 <MapPin className="h-4 w-4 shrink-0 text-txt3" />
-                <span className="min-w-0 flex-1">{draft.location}</span>
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(draft.location)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 flex-1 underline decoration-txt3/40 underline-offset-2 hover:text-accentSoft"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {draft.location}
+                </a>
               </div>
             )}
 
