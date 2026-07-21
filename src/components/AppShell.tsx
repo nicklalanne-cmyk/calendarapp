@@ -35,6 +35,7 @@ import Toaster from "@/components/Toaster";
 import Assistant from "@/components/Assistant";
 import QuickFab from "@/components/QuickFab";
 import FeedbackOverlay from "@/components/feedback/FeedbackOverlay";
+import PullToRefresh from "@/components/PullToRefresh";
 import { useAdminInbox } from "@/components/feedback/useAdminInbox";
 import { useSettings } from "@/components/SettingsProvider";
 import clsx from "clsx";
@@ -471,7 +472,9 @@ export default function AppShell({
           </div>
         </header>
 
-        <main className="min-h-0 w-full min-w-0 flex-1 overflow-hidden">{children}</main>
+        <main className="min-h-0 w-full min-w-0 flex-1 overflow-hidden">
+          <PullToRefresh>{children}</PullToRefresh>
+        </main>
 
         {/* ---------------- mobile bottom nav ---------------- */}
         <nav
