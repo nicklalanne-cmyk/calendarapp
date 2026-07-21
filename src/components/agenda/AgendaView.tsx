@@ -221,6 +221,17 @@ export default function AgendaView() {
     };
   }, [load]);
 
+  // The mobile bottom-nav FAB's "Task" quick-create fires this globally
+  // (AppShell no longer navigates away from Agenda to handle it — see
+  // handlesNewTaskLocally there). Reuse the same create-task modal the
+  // header's own + button opens, so it's pre-filled with `anchor` — the day
+  // currently selected here — instead of whatever day Planner last showed.
+  useEffect(() => {
+    const h = () => setCreating(true);
+    window.addEventListener("cadence:new-task", h);
+    return () => window.removeEventListener("cadence:new-task", h);
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: u }) => setCurrentUserId(u.user?.id ?? null));
   }, [supabase]);

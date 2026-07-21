@@ -205,9 +205,17 @@ export default function AppShell({
 
   // FAB actions broadcast to whatever page is mounted; pages listen and open their own modal.
   const fire = (name: string) => window.dispatchEvent(new CustomEvent(name));
+  // Agenda has its own "new task" handling (AgendaView listens for
+  // cadence:new-task and opens its modal pre-filled with whatever day is
+  // currently selected there) — so the FAB shouldn't yank you back to
+  // Planner (and lose that day) when you're already on Agenda. Every other
+  // page still falls back to Planner, since only Planner/Agenda know how to
+  // handle this event themselves.
+  const handlesNewTaskLocally = (p: string) => p === "/app" || p.startsWith("/app/agenda");
   const newTask = () => {
-    if (pathname !== "/app") router.push("/app");
-    setTimeout(() => fire("cadence:new-task"), pathname !== "/app" ? 350 : 0);
+    const local = handlesNewTaskLocally(pathname);
+    if (!local) router.push("/app");
+    setTimeout(() => fire("cadence:new-task"), local ? 0 : 350);
   };
   const newEvent = () => {
     if (pathname !== "/app") router.push("/app");
