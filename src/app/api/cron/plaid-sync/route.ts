@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { syncPlaidItem, type PlaidItemRow } from "@/lib/plaid";
-import { checkBillReminders } from "@/lib/plaidReminders";
 import { cleanupNewTransactions } from "@/lib/financeAi";
 
 export const dynamic = "force-dynamic";
@@ -36,12 +35,10 @@ export async function GET(request: NextRequest) {
   const items = (data as PlaidItemRow[] | null) ?? [];
 
   const results: Record<string, unknown> = {};
-  const usersSynced = new Set<string>();
   for (const item of items) {
     try {
       const result = await syncPlaidItem(db, item);
       results[item.item_id] = result;
-      usersSynced.add(item.user_id);
       await cleanupNewTransactions(db, item.user_id, result.transactions).catch(() => 0);
     } catch (e) {
       const msg = (e as Error).message;
@@ -50,14 +47,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const reminders: Record<string, number> = {};
-  for (const userId of usersSynced) {
-    try {
-      reminders[userId] = await checkBillReminders(db, userId);
-    } catch {
-      reminders[userId] = 0;
-    }
-  }
-
-  return NextResponse.json({ items: items.length, results, reminders });
+  return NextResponse.json({ items: items.length, results });
 }

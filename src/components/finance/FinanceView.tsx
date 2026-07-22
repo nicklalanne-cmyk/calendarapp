@@ -16,7 +16,6 @@ import {
   PiggyBank,
   ListChecks,
   Download,
-  CheckCircle2,
   X,
   Sparkles,
   Send,
@@ -112,7 +111,6 @@ export default function FinanceView() {
   const [accountFilter, setAccountFilter] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [addingBills, setAddingBills] = useState<Record<string, boolean>>({});
   const [budgetForm, setBudgetForm] = useState({ category: "", limit: "" });
   const [savingBudget, setSavingBudget] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -263,7 +261,7 @@ export default function FinanceView() {
       const res = await fetch("/api/plaid/sync", { method: "POST" });
       const j = await res.json();
       if (!res.ok) return toast(j.error ?? "Sync failed", "error");
-      toast(j.reminders ? `Synced · ${j.reminders} bill reminder${j.reminders === 1 ? "" : "s"} added` : "Synced");
+      toast("Synced");
       await loadAccounts();
       await loadTransactions();
       await loadNetWorth();
@@ -283,22 +281,6 @@ export default function FinanceView() {
     if (!res.ok) return toast(j.error ?? "Couldn't disconnect", "error");
     toast("Disconnected");
     loadAccounts();
-  };
-
-  const addBillToTasks = async (b: RecurringBill) => {
-    setAddingBills((s) => ({ ...s, [b.key]: true }));
-    try {
-      const res = await fetch("/api/plaid/bills/add-task", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: b.key, label: b.label, amount: b.amount, due_date: b.nextEstimate, cadence: b.cadence }),
-      });
-      const j = await res.json();
-      if (!res.ok) return toast(j.error ?? "Couldn't add task", "error");
-      toast(`Added "${j.task.title}" to Tasks`);
-    } finally {
-      setAddingBills((s) => ({ ...s, [b.key]: false }));
-    }
   };
 
   const saveBudget = async () => {
@@ -877,14 +859,6 @@ export default function FinanceView() {
                       </div>
                     </div>
                     <span className="shrink-0 tabular-nums text-txt2">{fmtMoney(b.amount)}</span>
-                    <button
-                      onClick={() => addBillToTasks(b)}
-                      disabled={addingBills[b.key]}
-                      className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-txt2 hover:bg-surface2 disabled:opacity-50"
-                      title="Add to Tasks"
-                    >
-                      <CheckCircle2 className="h-3 w-3" /> {addingBills[b.key] ? "Adding…" : "Add to Tasks"}
-                    </button>
                   </div>
                 ))}
               </div>

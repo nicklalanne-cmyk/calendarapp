@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/google/session";
 import { syncPlaidItem, type PlaidItemRow } from "@/lib/plaid";
-import { checkBillReminders } from "@/lib/plaidReminders";
 import { cleanupNewTransactions } from "@/lib/financeAi";
 
 // Manual "Sync now" button in the Finance page. RLS already scopes
@@ -34,10 +33,5 @@ export async function POST() {
     }
   }
 
-  let reminders = 0;
-  if (!anyError) {
-    reminders = await checkBillReminders(supabase, user.id).catch(() => 0);
-  }
-
-  return NextResponse.json({ ok: !anyError, results, reminders, cleaned });
+  return NextResponse.json({ ok: !anyError, results, cleaned });
 }

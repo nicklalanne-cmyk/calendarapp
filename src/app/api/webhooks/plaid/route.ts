@@ -7,7 +7,6 @@ import {
   verifyPlaidWebhook,
   type PlaidItemRow,
 } from "@/lib/plaid";
-import { checkBillReminders } from "@/lib/plaidReminders";
 import { cleanupNewTransactions } from "@/lib/financeAi";
 
 export const dynamic = "force-dynamic";
@@ -67,9 +66,8 @@ export async function POST(request: NextRequest) {
   if (SYNC_EVENTS.has(code)) {
     try {
       const result = await syncPlaidItem(db, itemRow);
-      const reminders = await checkBillReminders(db, itemRow.user_id).catch(() => 0);
       const cleaned = await cleanupNewTransactions(db, itemRow.user_id, result.transactions).catch(() => 0);
-      return NextResponse.json({ ok: true, synced: result, reminders, cleaned });
+      return NextResponse.json({ ok: true, synced: result, cleaned });
     } catch (e) {
       const msg = (e as Error).message;
       await db.from("plaid_items").update({ status: "error", error: msg }).eq("id", itemRow.id);
