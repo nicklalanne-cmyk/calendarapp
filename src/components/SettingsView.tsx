@@ -235,7 +235,9 @@ export default function SettingsView() {
 
         <section className="mb-6 rounded-xl border border-border bg-surface p-4">
           <h2 className="text-sm font-semibold">Default Agenda view</h2>
-          <p className="mb-3 text-xs text-txt3">Which view Agenda opens in.</p>
+          <p className="mb-3 text-xs text-txt3">
+            Which view Agenda opens in on desktop. On mobile, Agenda always starts on Day.
+          </p>
           <div className="flex gap-2">
             {AGENDA_VIEWS.map((v) => (
               <button

@@ -30,6 +30,11 @@ const PRIORITY_COLOR = ["", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 // the accent-colored "selected day" circle in the mobile mini month calendar.
 const TODAY_COLOR = "#F0A24F";
 
+// sessionStorage key for remembering a manual Day/Week switch on mobile for
+// the current browser session — see the mode-default effect and the mobile
+// toggle button in AgendaView below.
+const MOBILE_AGENDA_MODE_KEY = "cadence-agenda-mobile-mode";
+
 // Compact month-grid picker for the mobile day view's header — lets you tap
 // any date to jump straight there instead of only stepping day-by-day.
 // Deliberately much smaller/denser than calendar/MonthView.tsx (no event
@@ -97,10 +102,27 @@ export default function AgendaView() {
   const { settings } = useSettings();
   const appliedDefaultMode = useRef(false);
 
-  // apply the user's preferred default Agenda view once settings load,
-  // without stomping on a mode switch they've already made this session
+  // On mobile, a fresh load always lands on Day view, regardless of the
+  // "Default Agenda view" setting (which only governs desktop — see the
+  // settings.agenda_view branch below). If the user manually flips to Week
+  // via the mobile Day/Week toggle, that choice is remembered in
+  // sessionStorage (see the toggle button below) so it survives a reload
+  // within the same browser session, but a brand-new session starts fresh
+  // on Day again. Desktop keeps applying settings.agenda_view exactly as
+  // before, and never touches sessionStorage.
   useEffect(() => {
     if (appliedDefaultMode.current) return;
+    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    if (isMobile) {
+      appliedDefaultMode.current = true;
+      try {
+        const saved = sessionStorage.getItem(MOBILE_AGENDA_MODE_KEY);
+        if (saved === "day" || saved === "week") setMode(saved);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     if (settings.agenda_view === "day" || settings.agenda_view === "week") {
       setMode(settings.agenda_view);
       appliedDefaultMode.current = true;
@@ -1301,7 +1323,20 @@ export default function AgendaView() {
         <header className="shrink-0 border-b border-border px-4 pb-2 md:hidden">
           <div className="flex items-center gap-1.5 py-1">
             <button
-              onClick={() => setMode((m) => (m === "day" ? "week" : "day"))}
+              onClick={() =>
+                setMode((m) => {
+                  const next = m === "day" ? "week" : "day";
+                  // Remember an explicit mobile Day/Week switch for the rest of
+                  // this browser session (see the mode-default effect above),
+                  // so it survives a reload but not a fresh session.
+                  try {
+                    sessionStorage.setItem(MOBILE_AGENDA_MODE_KEY, next);
+                  } catch {
+                    /* ignore */
+                  }
+                  return next;
+                })
+              }
               className="rounded-full border border-border px-3 py-1.5 text-xs text-txt2 active:bg-surface2"
             >
               {mode === "day" ? "Week" : "Day"}
@@ -1337,9 +1372,11 @@ export default function AgendaView() {
 
           {/* Same big-date + tap-to-jump month calendar in both modes now —
               week mode used to show a 7-day pill strip here instead, but it
-              was redundant with the full week list right below it. Picking a
-              date here doesn't change mode, so in week mode it just re-centers
-              the week around whatever day you tap. */}
+              was redundant with the full week list right below it. Tapping a
+              date always jumps into Day view for that date (jumpToDay) — it
+              previously just re-centered the anchor while staying in
+              whichever mode you were in, which made a tap from week mode
+              feel like it did nothing until you scrolled back up. */}
           <div className="flex items-start gap-3 py-2">
             <div className="shrink-0">
               <div className="text-5xl font-bold leading-none tabular-nums" style={{ color: TODAY_COLOR }}>
@@ -1349,7 +1386,7 @@ export default function AgendaView() {
                 {format(anchor, "EEEE")}, Week {getWeek(anchor, { weekStartsOn: 0 })}
               </div>
             </div>
-            <MiniMonthCalendar anchor={anchor} onPick={(d) => setAnchor(d)} />
+            <MiniMonthCalendar anchor={anchor} onPick={jumpToDay} />
           </div>
         </header>
 
