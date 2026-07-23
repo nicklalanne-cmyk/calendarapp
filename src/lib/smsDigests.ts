@@ -3,14 +3,14 @@ import { getGoogleAccessToken } from "@/lib/google/tokens";
 import { listCalendars, listEventsRaw } from "@/lib/google/calendar";
 
 /**
- * Server-only. Builds the plain-text body for the two built-in scheduled
- * SMS digests. Kept separate from the cron route itself so the content
- * logic can be unit-tested/reused (e.g. by a "send test text" button)
- * without pulling in the whole cron handler.
+ * Server-only. Builds the plain-text body for the scheduled SMS digests and
+ * reminders. Kept separate from the cron route itself so the content logic
+ * can be unit-tested/reused (e.g. by a "send test text" button) without
+ * pulling in the whole cron handler.
  */
 
 type GoogleAccountRow = { id: string; refresh_token: string; is_default: boolean };
-type TaskRow = { id: string; title: string; due_date: string | null; scheduled_start: string | null };
+type TaskRow = { id: string; title: string; due_date: string | null; scheduled_start: string | null; location: string | null };
 
 function fmtTime(iso: string): string {
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
@@ -22,7 +22,8 @@ function fmtDayLabel(localDate: string, tz: string): string {
 }
 
 /** Today's calendar events (across every connected Google account) + tasks
- * due today, formatted for a single SMS. */
+ * due today, formatted for a single SMS. Bulleted; includes each event's/
+ * task's address when one is set. */
 export async function buildTodayScheduleText(
   db: SupabaseClient,
   userId: string,
@@ -39,7 +40,7 @@ export async function buildTodayScheduleText(
   const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayEnd.getDate() + 1);
 
-  const events: { title: string; start: string; allDay: boolean }[] = [];
+  const events: { title: string; start: string; allDay: boolean; location: string | null }[] = [];
   await Promise.all(
     accounts.map(async (acc) => {
       const token = await getGoogleAccessToken(acc.refresh_token);
@@ -57,6 +58,7 @@ export async function buildTodayScheduleText(
                     title: e.summary ?? "(No title)",
                     start: e.start?.dateTime ?? (e.start?.date ? `${e.start.date}T00:00:00` : dayStart.toISOString()),
                     allDay: !e.start?.dateTime,
+                    location: e.location ?? null,
                   });
                 }
               } catch {
@@ -73,7 +75,7 @@ export async function buildTodayScheduleText(
 
   const { data: taskRows } = await db
     .from("tasks")
-    .select("id, title, due_date, scheduled_start")
+    .select("id, title, due_date, scheduled_start, location")
     .eq("user_id", userId)
     .eq("is_done", false)
     .is("deleted_at", null)
@@ -86,7 +88,8 @@ export async function buildTodayScheduleText(
 
   if (events.length > 0) {
     for (const e of events.slice(0, 8)) {
-      lines.push(e.allDay ? `• All day: ${e.title}` : `• ${fmtTime(e.start)} ${e.title}`);
+      const loc = e.location ? ` — ${e.location}` : "";
+      lines.push(e.allDay ? `• All day: ${e.title}${loc}` : `• ${fmtTime(e.start)} ${e.title}${loc}`);
     }
     if (events.length > 8) lines.push(`…+${events.length - 8} more on your calendar`);
   } else {
@@ -94,14 +97,19 @@ export async function buildTodayScheduleText(
   }
 
   if (tasks.length > 0) {
-    lines.push(`Tasks (${tasks.length}): ${tasks.slice(0, 6).map((t) => t.title).join(", ")}${tasks.length > 6 ? "…" : ""}`);
+    lines.push(`Tasks (${tasks.length}):`);
+    for (const t of tasks.slice(0, 8)) {
+      const loc = t.location ? ` — ${t.location}` : "";
+      lines.push(`• ${t.title}${loc}`);
+    }
+    if (tasks.length > 8) lines.push(`…+${tasks.length - 8} more`);
   }
 
   return lines.join("\n");
 }
 
 /** Tasks actually completed today (via the completed_at trigger), formatted
- * for a single SMS. */
+ * for a single SMS as a bulleted list. */
 export async function buildAccomplishedTodayText(
   db: SupabaseClient,
   userId: string,
@@ -126,6 +134,83 @@ export async function buildAccomplishedTodayText(
   if (done.length === 0) {
     return `${dayLabel}: nothing checked off today. Tomorrow's a clean slate.`;
   }
-  const titles = done.slice(0, 10).map((t) => t.title).join(", ");
-  return `Nice work today (${dayLabel})! You completed ${done.length} ${done.length === 1 ? "task" : "tasks"}: ${titles}${done.length > 10 ? "…" : ""}`;
+  const lines = [`Nice work today (${dayLabel})! You completed ${done.length} ${done.length === 1 ? "task" : "tasks"}:`];
+  for (const t of done.slice(0, 12)) lines.push(`• ${t.title}`);
+  if (done.length > 12) lines.push(`…+${done.length - 12} more`);
+  return lines.join("\n");
+}
+
+export type ReminderMatch = { id: string; title: string; start: string; location: string | null };
+
+/** Calendar events (across every connected Google account) whose start time
+ * falls within [windowStart, windowEnd) — used to fire "event reminder"
+ * texts a configurable lead time before the event starts. All-day events are
+ * skipped since they have no specific start time to count down from. */
+export async function findEventReminders(
+  db: SupabaseClient,
+  userId: string,
+  windowStart: Date,
+  windowEnd: Date
+): Promise<ReminderMatch[]> {
+  const { data: accountRows } = await db.from("google_accounts").select("id, refresh_token, is_default").eq("user_id", userId);
+  const accounts = (accountRows as GoogleAccountRow[] | null) ?? [];
+
+  const matches: ReminderMatch[] = [];
+  await Promise.all(
+    accounts.map(async (acc) => {
+      const token = await getGoogleAccessToken(acc.refresh_token);
+      if (!token) return;
+      try {
+        const cals = await listCalendars(token);
+        await Promise.all(
+          cals
+            .filter((c) => c.selected !== false)
+            .map(async (cal) => {
+              try {
+                const raw = await listEventsRaw(token, cal.id, windowStart.toISOString(), windowEnd.toISOString());
+                for (const e of raw) {
+                  if (!e.start?.dateTime) continue; // all-day — no specific time to remind before
+                  matches.push({ id: e.id, title: e.summary ?? "(No title)", start: e.start.dateTime, location: e.location ?? null });
+                }
+              } catch {
+                /* skip calendar */
+              }
+            })
+        );
+      } catch {
+        /* skip account */
+      }
+    })
+  );
+  return matches;
+}
+
+/** Tasks with a scheduled_start falling within [windowStart, windowEnd) —
+ * used to fire "task reminder" texts a configurable lead time before the
+ * task's scheduled time. Tasks with no scheduled_start never match, since
+ * there's no specific time to count down from. */
+export async function findTaskReminders(
+  db: SupabaseClient,
+  userId: string,
+  windowStart: Date,
+  windowEnd: Date
+): Promise<ReminderMatch[]> {
+  const { data } = await db
+    .from("tasks")
+    .select("id, title, scheduled_start, location")
+    .eq("user_id", userId)
+    .eq("is_done", false)
+    .is("deleted_at", null)
+    .is("parent_id", null)
+    .gte("scheduled_start", windowStart.toISOString())
+    .lt("scheduled_start", windowEnd.toISOString());
+  const rows = (data as { id: string; title: string; scheduled_start: string; location: string | null }[] | null) ?? [];
+  return rows.map((t) => ({ id: t.id, title: t.title, start: t.scheduled_start, location: t.location }));
+}
+
+export function formatReminderText(kind: "event_reminder" | "task_reminder", m: ReminderMatch): string {
+  const time = fmtTime(m.start);
+  const prefix = kind === "event_reminder" ? "Reminder" : "Task reminder";
+  const loc = m.location ? ` — ${m.location}` : "";
+  return `${prefix}: ${m.title} at ${time}${loc}`;
 }

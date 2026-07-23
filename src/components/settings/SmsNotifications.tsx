@@ -8,10 +8,11 @@ import { toast } from "@/lib/toast";
 
 type Notification = {
   id: string;
-  kind: "today_schedule" | "accomplished_today" | "custom";
+  kind: "today_schedule" | "accomplished_today" | "custom" | "event_reminder" | "task_reminder";
   label: string;
-  hour: number;
-  minute: number;
+  hour: number | null;
+  minute: number | null;
+  lead_minutes: number | null;
   enabled: boolean;
   message: string | null;
 };
@@ -19,10 +20,21 @@ type Notification = {
 const KIND_OPTIONS: { value: Notification["kind"]; label: string; hint: string }[] = [
   { value: "today_schedule", label: "Today's schedule", hint: "Calendar events + tasks due today" },
   { value: "accomplished_today", label: "Accomplished today", hint: "Tasks you checked off today" },
+  { value: "event_reminder", label: "Event reminder", hint: "A heads-up before a calendar event starts" },
+  { value: "task_reminder", label: "Task reminder", hint: "A heads-up before a scheduled task" },
   { value: "custom", label: "Custom message", hint: "Your own literal text" },
 ];
 
+const REMINDER_KINDS: Notification["kind"][] = ["event_reminder", "task_reminder"];
+
 const MINUTES = [0, 15, 30, 45];
+const LEAD_OPTIONS = [15, 30, 60, 120];
+
+function leadLabel(mins: number) {
+  if (mins < 60) return `${mins} min before`;
+  const hrs = mins / 60;
+  return `${hrs} ${hrs === 1 ? "hour" : "hours"} before`;
+}
 
 function timeLabel(hour: number, minute: number) {
   const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
@@ -47,6 +59,7 @@ export default function SmsNotifications() {
   const [newLabel, setNewLabel] = useState("");
   const [newHour, setNewHour] = useState(9);
   const [newMinute, setNewMinute] = useState(0);
+  const [newLeadMinutes, setNewLeadMinutes] = useState(60);
   const [newMessage, setNewMessage] = useState("");
   const [testing, setTesting] = useState(false);
 
@@ -57,10 +70,9 @@ export default function SmsNotifications() {
       supabase.from("sms_settings").select("phone_number, enabled").eq("user_id", u.user.id).maybeSingle(),
       supabase
         .from("sms_notifications")
-        .select("id, kind, label, hour, minute, enabled, message")
+        .select("id, kind, label, hour, minute, lead_minutes, enabled, message")
         .eq("user_id", u.user.id)
-        .order("hour", { ascending: true })
-        .order("minute", { ascending: true }),
+        .order("created_at", { ascending: true }),
     ]);
     setEnabled((settingsRow as { enabled: boolean } | null)?.enabled ?? false);
     setPhone((settingsRow as { phone_number: string | null } | null)?.phone_number ?? "");
@@ -108,6 +120,12 @@ export default function SmsNotifications() {
     if (error) toast(error.message, "error");
   };
 
+  const updateLeadMinutes = async (n: Notification, lead_minutes: number) => {
+    setNotifs((cur) => cur.map((x) => (x.id === n.id ? { ...x, lead_minutes } : x)));
+    const { error } = await supabase.from("sms_notifications").update({ lead_minutes }).eq("id", n.id);
+    if (error) toast(error.message, "error");
+  };
+
   const deleteNotif = async (n: Notification) => {
     setNotifs((cur) => cur.filter((x) => x.id !== n.id));
     const { error } = await supabase.from("sms_notifications").delete().eq("id", n.id);
@@ -119,6 +137,7 @@ export default function SmsNotifications() {
     if (!u.user) return;
     const opt = KIND_OPTIONS.find((o) => o.value === newKind)!;
     const label = newLabel.trim() || opt.label;
+    const isReminder = REMINDER_KINDS.includes(newKind);
     if (newKind === "custom" && !newMessage.trim()) return toast("Add a message for a custom text.", "error");
     const { data, error } = await supabase
       .from("sms_notifications")
@@ -126,15 +145,16 @@ export default function SmsNotifications() {
         user_id: u.user.id,
         kind: newKind,
         label,
-        hour: newHour,
-        minute: newMinute,
+        hour: isReminder ? null : newHour,
+        minute: isReminder ? null : newMinute,
+        lead_minutes: isReminder ? newLeadMinutes : null,
         enabled: true,
         message: newKind === "custom" ? newMessage.trim() : null,
       })
-      .select("id, kind, label, hour, minute, enabled, message")
+      .select("id, kind, label, hour, minute, lead_minutes, enabled, message")
       .single();
     if (error) return toast(error.message, "error");
-    setNotifs((cur) => [...cur, data as Notification].sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute)));
+    setNotifs((cur) => [...cur, data as Notification]);
     setAdding(false);
     setNewLabel("");
     setNewMessage("");
@@ -238,22 +258,36 @@ export default function SmsNotifications() {
                 <div className="truncate text-[11px] text-txt3">{n.message}</div>
               )}
             </div>
-            <select
-              value={`${n.hour}:${n.minute}`}
-              onChange={(e) => {
-                const [h, m] = e.target.value.split(":").map(Number);
-                updateTime(n, h, m);
-              }}
-              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-txt"
-            >
-              {Array.from({ length: 24 }, (_, h) => h).flatMap((h) =>
-                MINUTES.map((m) => (
-                  <option key={`${h}:${m}`} value={`${h}:${m}`}>
-                    {timeLabel(h, m)}
+            {REMINDER_KINDS.includes(n.kind) ? (
+              <select
+                value={n.lead_minutes ?? 60}
+                onChange={(e) => updateLeadMinutes(n, parseInt(e.target.value, 10))}
+                className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-txt"
+              >
+                {LEAD_OPTIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {leadLabel(m)}
                   </option>
-                ))
-              )}
-            </select>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={`${n.hour ?? 9}:${n.minute ?? 0}`}
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(":").map(Number);
+                  updateTime(n, h, m);
+                }}
+                className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-txt"
+              >
+                {Array.from({ length: 24 }, (_, h) => h).flatMap((h) =>
+                  MINUTES.map((m) => (
+                    <option key={`${h}:${m}`} value={`${h}:${m}`}>
+                      {timeLabel(h, m)}
+                    </option>
+                  ))
+                )}
+              </select>
+            )}
             <button
               onClick={() => deleteNotif(n)}
               className="rounded-lg p-1.5 text-txt3 transition hover:bg-surface3 hover:text-danger"
@@ -282,33 +316,50 @@ export default function SmsNotifications() {
                 ))}
               </select>
             </label>
-            <label className="block">
-              <span className="mb-1 block text-xs text-txt3">Time</span>
-              <div className="flex gap-1">
+            {REMINDER_KINDS.includes(newKind) ? (
+              <label className="block">
+                <span className="mb-1 block text-xs text-txt3">Lead time</span>
                 <select
-                  value={newHour}
-                  onChange={(e) => setNewHour(parseInt(e.target.value, 10))}
+                  value={newLeadMinutes}
+                  onChange={(e) => setNewLeadMinutes(parseInt(e.target.value, 10))}
                   className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-txt"
                 >
-                  {Array.from({ length: 24 }, (_, h) => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={newMinute}
-                  onChange={(e) => setNewMinute(parseInt(e.target.value, 10))}
-                  className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-txt"
-                >
-                  {MINUTES.map((m) => (
+                  {LEAD_OPTIONS.map((m) => (
                     <option key={m} value={m}>
-                      :{String(m).padStart(2, "0")}
+                      {leadLabel(m)}
                     </option>
                   ))}
                 </select>
-              </div>
-            </label>
+              </label>
+            ) : (
+              <label className="block">
+                <span className="mb-1 block text-xs text-txt3">Time</span>
+                <div className="flex gap-1">
+                  <select
+                    value={newHour}
+                    onChange={(e) => setNewHour(parseInt(e.target.value, 10))}
+                    className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-txt"
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={newMinute}
+                    onChange={(e) => setNewMinute(parseInt(e.target.value, 10))}
+                    className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-txt"
+                  >
+                    {MINUTES.map((m) => (
+                      <option key={m} value={m}>
+                        :{String(m).padStart(2, "0")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+            )}
           </div>
           <label className="block">
             <span className="mb-1 block text-xs text-txt3">Label (optional)</span>

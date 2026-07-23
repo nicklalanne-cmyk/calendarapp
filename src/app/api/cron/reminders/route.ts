@@ -4,7 +4,13 @@ import webpush from "web-push";
 import { rulesForTrigger, runActions, matchesAll, taskCtx, type TaskLike, type RuleConfig } from "@/lib/automations";
 import { sendPushToUser } from "@/lib/push-server";
 import { sendSms } from "@/lib/sms";
-import { buildTodayScheduleText, buildAccomplishedTodayText } from "@/lib/smsDigests";
+import {
+  buildTodayScheduleText,
+  buildAccomplishedTodayText,
+  findEventReminders,
+  findTaskReminders,
+  formatReminderText,
+} from "@/lib/smsDigests";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -198,11 +204,20 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
   const userIds = withPhone.map((s) => s.user_id);
   const { data: notifRows } = await db
     .from("sms_notifications")
-    .select("id, user_id, kind, hour, minute, enabled, message")
+    .select("id, user_id, kind, hour, minute, lead_minutes, enabled, message")
     .in("user_id", userIds)
     .eq("enabled", true);
   const notifs =
-    (notifRows as { id: string; user_id: string; kind: string; hour: number; minute: number; enabled: boolean; message: string | null }[] | null) ?? [];
+    (notifRows as {
+      id: string;
+      user_id: string;
+      kind: string;
+      hour: number | null;
+      minute: number | null;
+      lead_minutes: number | null;
+      enabled: boolean;
+      message: string | null;
+    }[] | null) ?? [];
   if (notifs.length === 0) return 0;
 
   const { data: tzRows } = await db.from("user_settings").select("user_id, timezone").in("user_id", userIds);
@@ -215,6 +230,36 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
   let sent = 0;
 
   for (const n of notifs) {
+    const phone = phoneByUser.get(n.user_id);
+    if (!phone) continue;
+
+    if (n.kind === "event_reminder" || n.kind === "task_reminder") {
+      // Fires whenever an event/task's start time lands lead_minutes from
+      // now — no fixed clock time, so no local-hour tick match needed. The
+      // 15-min-wide window matches this cron's own tick cadence, so each
+      // item's start time falls into exactly one tick's window.
+      const leadMinutes = n.lead_minutes ?? 60;
+      const windowStart = new Date(now.getTime() + leadMinutes * 60_000);
+      const windowEnd = new Date(windowStart.getTime() + 15 * 60_000);
+      const matches =
+        n.kind === "event_reminder"
+          ? await findEventReminders(db, n.user_id, windowStart, windowEnd)
+          : await findTaskReminders(db, n.user_id, windowStart, windowEnd);
+
+      for (const m of matches) {
+        const dedupeKey = `sms:${n.id}:${m.id}`;
+        const { error: logErr } = await db.from("sms_log").insert({ user_id: n.user_id, dedupe_key: dedupeKey });
+        if (logErr) continue; // already sent for this event/task instance
+
+        const body = formatReminderText(n.kind, m);
+        const result = await sendSms(phone, body);
+        if (result.ok) sent++;
+      }
+      continue;
+    }
+
+    // --- fixed-clock-time kinds: today_schedule / accomplished_today / custom
+    if (n.hour == null || n.minute == null) continue;
     const tz = tzByUser.get(n.user_id) ?? "UTC";
     const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false }).format(now));
     const localMinute = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, minute: "numeric" }).format(now));
@@ -239,8 +284,6 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
     }
     if (!body) continue;
 
-    const phone = phoneByUser.get(n.user_id);
-    if (!phone) continue;
     const result = await sendSms(phone, body);
     if (result.ok) sent++;
   }
