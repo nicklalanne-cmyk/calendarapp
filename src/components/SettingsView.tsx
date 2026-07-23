@@ -10,6 +10,7 @@ import {
 import clsx from "clsx";
 import { useSettings } from "@/components/SettingsProvider";
 import Reminders from "@/components/Reminders";
+import SmsNotifications from "@/components/settings/SmsNotifications";
 import { toast } from "@/lib/toast";
 import { createClient } from "@/lib/supabase/client";
 
@@ -424,6 +425,8 @@ export default function SettingsView() {
             </div>
           )}
         </section>
+
+        <SmsNotifications />
 
         <section className="mb-6 rounded-xl border border-border bg-surface p-4">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold">

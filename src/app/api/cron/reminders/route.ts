@@ -3,6 +3,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { rulesForTrigger, runActions, matchesAll, taskCtx, type TaskLike, type RuleConfig } from "@/lib/automations";
 import { sendPushToUser } from "@/lib/push-server";
+import { sendSms } from "@/lib/sms";
+import { buildTodayScheduleText, buildAccomplishedTodayText } from "@/lib/smsDigests";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -50,10 +52,14 @@ export async function GET(request: NextRequest) {
   const dateRelativeFired = await runDateRelativeAutomations(db);
   const automationsCreated = scheduleFired + dateRelativeFired;
 
+  // --- scheduled SMS digests (Settings → Text notifications)
+  const smsSent = await runSmsNotifications(db);
+
   if (!vapidPublic || !vapidPrivate) {
     return NextResponse.json({
       sent: 0,
       automationsCreated,
+      smsSent,
       reason: "push isn't configured (NEXT_PUBLIC_VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)",
     });
   }
@@ -69,7 +75,7 @@ export async function GET(request: NextRequest) {
     .select("user_id, digest_hour, timezone, push_enabled")
     .eq("push_enabled", true);
   const settings = (settingsRows as Settings[] | null) ?? [];
-  if (settings.length === 0) return NextResponse.json({ sent: 0, automationsCreated, reason: "nobody subscribed" });
+  if (settings.length === 0) return NextResponse.json({ sent: 0, automationsCreated, smsSent, reason: "nobody subscribed" });
 
   const { data: subRows } = await db.from("push_subscriptions").select("*");
   const subs = (subRows as Sub[] | null) ?? [];
@@ -176,7 +182,69 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ sent, automationsCreated, errors: results });
+  return NextResponse.json({ sent, automationsCreated, smsSent, errors: results });
+}
+
+/** Sends each user's enabled `sms_notifications` rows once per local day, at
+ * the local hour+minute they picked (times are constrained to 15-min
+ * increments in the UI so they align with this cron's own tick cadence).
+ * Dedup is a row in sms_log keyed on (notification.id, local date). */
+async function runSmsNotifications(db: SupabaseClient): Promise<number> {
+  const { data: settingsRows } = await db.from("sms_settings").select("user_id, phone_number, enabled").eq("enabled", true);
+  const smsSettings = (settingsRows as { user_id: string; phone_number: string | null; enabled: boolean }[] | null) ?? [];
+  const withPhone = smsSettings.filter((s) => s.phone_number);
+  if (withPhone.length === 0) return 0;
+
+  const userIds = withPhone.map((s) => s.user_id);
+  const { data: notifRows } = await db
+    .from("sms_notifications")
+    .select("id, user_id, kind, hour, minute, enabled, message")
+    .in("user_id", userIds)
+    .eq("enabled", true);
+  const notifs =
+    (notifRows as { id: string; user_id: string; kind: string; hour: number; minute: number; enabled: boolean; message: string | null }[] | null) ?? [];
+  if (notifs.length === 0) return 0;
+
+  const { data: tzRows } = await db.from("user_settings").select("user_id, timezone").in("user_id", userIds);
+  const tzByUser = new Map<string, string>(
+    ((tzRows as { user_id: string; timezone: string }[] | null) ?? []).map((s) => [s.user_id, s.timezone || "UTC"])
+  );
+  const phoneByUser = new Map(withPhone.map((s) => [s.user_id, s.phone_number as string]));
+
+  const now = new Date();
+  let sent = 0;
+
+  for (const n of notifs) {
+    const tz = tzByUser.get(n.user_id) ?? "UTC";
+    const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false }).format(now));
+    const localMinute = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, minute: "numeric" }).format(now));
+    // The cron only ticks on :00/:15/:30/:45, so match against whichever of
+    // those the current minute rounds down to — the local minute at tick
+    // time is always exactly one of them.
+    const tickMinute = Math.floor(localMinute / 15) * 15;
+    if (localHour !== n.hour || tickMinute !== n.minute) continue;
+
+    const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+    const dedupeKey = `sms:${n.id}:${localDate}`;
+    const { error: logErr } = await db.from("sms_log").insert({ user_id: n.user_id, dedupe_key: dedupeKey });
+    if (logErr) continue; // already sent today
+
+    let body: string;
+    if (n.kind === "today_schedule") {
+      body = await buildTodayScheduleText(db, n.user_id, localDate, tz);
+    } else if (n.kind === "accomplished_today") {
+      body = await buildAccomplishedTodayText(db, n.user_id, localDate, tz);
+    } else {
+      body = n.message || "";
+    }
+    if (!body) continue;
+
+    const phone = phoneByUser.get(n.user_id);
+    if (!phone) continue;
+    const result = await sendSms(phone, body);
+    if (result.ok) sent++;
+  }
+  return sent;
 }
 
 /** Runs every enabled "On a schedule (days of week)" rule whose daysOfWeek
