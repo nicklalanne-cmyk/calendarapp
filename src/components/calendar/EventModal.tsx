@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { format, isSameDay } from "date-fns";
 import {
-  Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon, Pencil, X, ListTodo,
+  Trash2, MapPin, AlignLeft, Users, Video, Repeat, Calendar as CalIcon, Pencil, X, ListTodo, BellRing,
 } from "lucide-react";
 import clsx from "clsx";
 import type { Attendee } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import FollowUpMenu from "@/components/FollowUpMenu";
+import { REMINDER_OPTIONS } from "@/lib/reminders";
 
 export type EventDraft = {
   id?: string;
@@ -122,6 +123,11 @@ export default function EventModal({
   const [shared, setShared] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  // "Remind me" — a text a configurable lead time before this event starts.
+  // Only meaningful for an already-created, timed event (a brand-new event
+  // has no id yet to attach a reminder row to; save it first, then reopen).
+  const [reminderLeadMinutes, setReminderLeadMinutes] = useState<number | null>(null);
+  const [savingReminder, setSavingReminder] = useState(false);
 
   useEffect(() => {
     if (!draft.id) return;
@@ -132,20 +138,49 @@ export default function EventModal({
       if (!alive) return;
       setCurrentUserId(uid);
       if (!uid) return;
-      const { data } = await supabase
-        .from("shared_events")
-        .select("id")
-        .eq("owner_user_id", uid)
-        .eq("event_id", draft.id)
-        .maybeSingle();
+      const [{ data: sharedRow }, { data: reminderRow }] = await Promise.all([
+        supabase.from("shared_events").select("id").eq("owner_user_id", uid).eq("event_id", draft.id).maybeSingle(),
+        supabase.from("event_reminders").select("lead_minutes").eq("user_id", uid).eq("event_id", draft.id).maybeSingle(),
+      ]);
       if (!alive) return;
-      setShared(Boolean(data));
+      setShared(Boolean(sharedRow));
+      setReminderLeadMinutes((reminderRow as { lead_minutes: number } | null)?.lead_minutes ?? null);
     })();
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.id]);
+
+  const updateReminder = async (leadMinutes: number | null) => {
+    if (!draft.id || !currentUserId) return;
+    setSavingReminder(true);
+    const prev = reminderLeadMinutes;
+    setReminderLeadMinutes(leadMinutes);
+    try {
+      if (leadMinutes === null) {
+        const { error } = await supabase.from("event_reminders").delete().eq("user_id", currentUserId).eq("event_id", draft.id);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from("event_reminders").upsert(
+          {
+            user_id: currentUserId,
+            event_id: draft.id,
+            account_id: draft.accountId ?? null,
+            calendar_id: draft.calendarId ?? "primary",
+            lead_minutes: leadMinutes,
+          },
+          { onConflict: "user_id,event_id" }
+        );
+        if (error) throw new Error(error.message);
+      }
+    } catch (e) {
+      setReminderLeadMinutes(prev);
+      toast((e as Error).message, "error");
+    } finally {
+      setSavingReminder(false);
+    }
+  };
 
   // "Share" tries a real Google Calendar invite first — adds the partner as
   // an actual attendee (sendUpdates=all), so Google emails them and it lands
@@ -575,6 +610,24 @@ export default function EventModal({
             className="w-full bg-transparent py-2.5 text-base outline-none placeholder:text-txt3 md:py-2 md:text-sm"
           />
         </div>
+
+        {draft.id && !allDay && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-surface px-3">
+            <BellRing className="h-4 w-4 shrink-0 text-txt3" />
+            <select
+              value={reminderLeadMinutes ?? ""}
+              onChange={(e) => updateReminder(e.target.value === "" ? null : parseInt(e.target.value, 10))}
+              disabled={savingReminder}
+              className="w-full bg-transparent py-2.5 text-base text-txt outline-none disabled:opacity-50 md:py-2 md:text-sm"
+            >
+              {REMINDER_OPTIONS.map((o) => (
+                <option key={o.label} value={o.value ?? ""}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="mb-3 flex gap-2 rounded-lg border border-border bg-surface px-3 py-2">
           <AlignLeft className="mt-0.5 h-4 w-4 shrink-0 text-txt3" />

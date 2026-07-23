@@ -140,77 +140,140 @@ export async function buildAccomplishedTodayText(
   return lines.join("\n");
 }
 
-export type ReminderMatch = { id: string; title: string; start: string; location: string | null };
+export type ReminderMatch = {
+  /** A stable dedupe key unique to this specific occurrence (event id + its
+   * current start time, or task id + its current scheduled_start) — so
+   * rescheduling something later lets it remind again instead of being
+   * permanently marked "already sent". */
+  dedupeKey: string;
+  userId: string;
+  title: string;
+  start: string;
+  location: string | null;
+};
 
-/** Calendar events (across every connected Google account) whose start time
- * falls within [windowStart, windowEnd) — used to fire "event reminder"
- * texts a configurable lead time before the event starts. All-day events are
- * skipped since they have no specific start time to count down from. */
-export async function findEventReminders(
+type TaskReminderRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  scheduled_start: string;
+  location: string | null;
+  reminder_lead_minutes: number;
+};
+
+/** Every enabled user's tasks that have their own "remind me" set (via the
+ * task modal) and a scheduled_start to count down from, whose reminder time
+ * (scheduled_start − lead_minutes) falls within the next `tickMinutes`
+ * minutes — i.e. it's due to fire on this cron tick. Tasks with no
+ * scheduled_start never have a reminder option in the UI, so this only ever
+ * matches tasks that were actually placed on a specific time. */
+export async function findDueTaskReminders(
   db: SupabaseClient,
-  userId: string,
-  windowStart: Date,
-  windowEnd: Date
+  userIds: string[],
+  now: Date,
+  tickMinutes: number
 ): Promise<ReminderMatch[]> {
-  const { data: accountRows } = await db.from("google_accounts").select("id, refresh_token, is_default").eq("user_id", userId);
-  const accounts = (accountRows as GoogleAccountRow[] | null) ?? [];
+  if (userIds.length === 0) return [];
+  const { data } = await db
+    .from("tasks")
+    .select("id, user_id, title, scheduled_start, location, reminder_lead_minutes")
+    .in("user_id", userIds)
+    .eq("is_done", false)
+    .is("deleted_at", null)
+    .not("reminder_lead_minutes", "is", null)
+    .not("scheduled_start", "is", null)
+    // scheduled_start can be at most a bit over a week away and still matter
+    // (the longest lead preset is 1 week) — bound the query instead of
+    // scanning every future task.
+    .lte("scheduled_start", new Date(now.getTime() + 8 * 24 * 60 * 60_000).toISOString());
+  const rows = (data as TaskReminderRow[] | null) ?? [];
+
+  const matches: ReminderMatch[] = [];
+  for (const t of rows) {
+    const remindAt = new Date(t.scheduled_start).getTime() - t.reminder_lead_minutes * 60_000;
+    const diffMin = (remindAt - now.getTime()) / 60_000;
+    if (diffMin < 0 || diffMin >= tickMinutes) continue;
+    matches.push({
+      dedupeKey: `sms:task_reminder:${t.id}:${t.scheduled_start}`,
+      userId: t.user_id,
+      title: t.title,
+      start: t.scheduled_start,
+      location: t.location,
+    });
+  }
+  return matches;
+}
+
+type EventReminderRow = {
+  id: string;
+  user_id: string;
+  account_id: string;
+  calendar_id: string;
+  event_id: string;
+  lead_minutes: number;
+};
+
+/** Every enabled user's per-event "remind me" rows (set via the event
+ * modal) whose reminder time falls within the next `tickMinutes` minutes.
+ * Each row's event is re-fetched live from Google so a rescheduled event's
+ * current start time (not whatever it was when the reminder was set) is
+ * what actually counts down. */
+export async function findDueEventReminders(
+  db: SupabaseClient,
+  userIds: string[],
+  now: Date,
+  tickMinutes: number
+): Promise<ReminderMatch[]> {
+  if (userIds.length === 0) return [];
+  const { data } = await db.from("event_reminders").select("id, user_id, account_id, calendar_id, event_id, lead_minutes").in("user_id", userIds);
+  const rows = (data as EventReminderRow[] | null) ?? [];
+  if (rows.length === 0) return [];
+
+  const accountIds = Array.from(new Set(rows.map((r) => r.account_id)));
+  const { data: accountRows } = await db.from("google_accounts").select("id, refresh_token").in("id", accountIds);
+  const tokenByAccount = new Map<string, string>();
+  await Promise.all(
+    ((accountRows as { id: string; refresh_token: string }[] | null) ?? []).map(async (acc) => {
+      const token = await getGoogleAccessToken(acc.refresh_token);
+      if (token) tokenByAccount.set(acc.id, token);
+    })
+  );
 
   const matches: ReminderMatch[] = [];
   await Promise.all(
-    accounts.map(async (acc) => {
-      const token = await getGoogleAccessToken(acc.refresh_token);
+    rows.map(async (r) => {
+      const token = tokenByAccount.get(r.account_id);
       if (!token) return;
       try {
-        const cals = await listCalendars(token);
-        await Promise.all(
-          cals
-            .filter((c) => c.selected !== false)
-            .map(async (cal) => {
-              try {
-                const raw = await listEventsRaw(token, cal.id, windowStart.toISOString(), windowEnd.toISOString());
-                for (const e of raw) {
-                  if (!e.start?.dateTime) continue; // all-day — no specific time to remind before
-                  matches.push({ id: e.id, title: e.summary ?? "(No title)", start: e.start.dateTime, location: e.location ?? null });
-                }
-              } catch {
-                /* skip calendar */
-              }
-            })
+        const raw = await listEventsRaw(
+          token,
+          r.calendar_id,
+          new Date(now.getTime() - 24 * 60 * 60_000).toISOString(),
+          new Date(now.getTime() + 8 * 24 * 60 * 60_000).toISOString()
         );
+        const e = raw.find((ev) => ev.id === r.event_id);
+        if (!e?.start?.dateTime) return; // deleted, moved out of range, or now all-day
+        const remindAt = new Date(e.start.dateTime).getTime() - r.lead_minutes * 60_000;
+        const diffMin = (remindAt - now.getTime()) / 60_000;
+        if (diffMin < 0 || diffMin >= tickMinutes) return;
+        matches.push({
+          dedupeKey: `sms:event_reminder:${r.id}:${e.start.dateTime}`,
+          userId: r.user_id,
+          title: e.summary ?? "(No title)",
+          start: e.start.dateTime,
+          location: e.location ?? null,
+        });
       } catch {
-        /* skip account */
+        /* skip — event/calendar unreachable this tick */
       }
     })
   );
   return matches;
 }
 
-/** Tasks with a scheduled_start falling within [windowStart, windowEnd) —
- * used to fire "task reminder" texts a configurable lead time before the
- * task's scheduled time. Tasks with no scheduled_start never match, since
- * there's no specific time to count down from. */
-export async function findTaskReminders(
-  db: SupabaseClient,
-  userId: string,
-  windowStart: Date,
-  windowEnd: Date
-): Promise<ReminderMatch[]> {
-  const { data } = await db
-    .from("tasks")
-    .select("id, title, scheduled_start, location")
-    .eq("user_id", userId)
-    .eq("is_done", false)
-    .is("deleted_at", null)
-    .is("parent_id", null)
-    .gte("scheduled_start", windowStart.toISOString())
-    .lt("scheduled_start", windowEnd.toISOString());
-  const rows = (data as { id: string; title: string; scheduled_start: string; location: string | null }[] | null) ?? [];
-  return rows.map((t) => ({ id: t.id, title: t.title, start: t.scheduled_start, location: t.location }));
-}
-
-export function formatReminderText(kind: "event_reminder" | "task_reminder", m: ReminderMatch): string {
+export function formatReminderText(kind: "event" | "task", m: ReminderMatch): string {
   const time = fmtTime(m.start);
-  const prefix = kind === "event_reminder" ? "Reminder" : "Task reminder";
+  const prefix = kind === "event" ? "Reminder" : "Task reminder";
   const loc = m.location ? ` — ${m.location}` : "";
   return `${prefix}: ${m.title} at ${time}${loc}`;
 }

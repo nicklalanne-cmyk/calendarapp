@@ -324,6 +324,7 @@ export default function AgendaView() {
       estimate_minutes: d.estimate_minutes,
       notes: d.notes,
       shared: d.shared,
+      reminder_lead_minutes: d.reminder_lead_minutes,
       linked_event_id: d.linked_event?.id ?? null,
       linked_event_calendar_id: d.linked_event?.calendarId ?? null,
       linked_event_account_id: d.linked_event?.accountId || null,
@@ -531,6 +532,7 @@ export default function AgendaView() {
       const q = new URLSearchParams({ accountId, calendarId: calendarId ?? "primary" });
       const res = await fetch(`/api/google/events/${targetId}?${q.toString()}`, { method: "DELETE" });
       if (!res.ok) toast("Couldn't delete the event", "error");
+      else await supabase.from("event_reminders").delete().eq("event_id", targetId);
       clearEventsCache();
       load(true);
     }, 6000);

@@ -270,7 +270,13 @@ export default function QuickFab({
         onPointerLeave={onLeave}
         onContextMenu={(e) => e.preventDefault()}
         className={clsx(
-          "relative z-50 -mt-7 flex h-16 w-16 shrink-0 select-none items-center justify-center rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition active:scale-95",
+          // Below every modal dialog's z-40/z-50 overlay (TaskModal, EventModal,
+          // etc.) on purpose — otherwise this persistent FAB (it needed its own
+          // z-index to ride visually above the plain bottom-nav bar behind it)
+          // would float on top of any modal opened while it's still mounted,
+          // which is exactly what happened when a modal's input opened the
+          // keyboard before the bottom-nav-hides-on-keyboard effect caught up.
+          "relative z-20 -mt-7 flex h-16 w-16 shrink-0 select-none items-center justify-center rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition active:scale-95",
           menu && "rotate-45"
         )}
         style={{ touchAction: "none" }}

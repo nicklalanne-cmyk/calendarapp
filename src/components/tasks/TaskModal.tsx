@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Trash2, Repeat, CalendarDays, Unlink, Users, Plus, Check } from "lucide-react";
+import { X, Trash2, Repeat, CalendarDays, Unlink, Users, Plus, Check, BellRing } from "lucide-react";
 import LinkPicker from "@/components/notes/LinkPicker";
 import EditableTitle from "@/components/tasks/EditableTitle";
 import clsx from "clsx";
@@ -10,6 +10,7 @@ import { describeRRule, presetsFor, parseRRule, formatRRule, DAY_CODES } from "@
 import { legacyToRRule, startOfWeek } from "@/lib/tasks";
 import { toISODate } from "@/lib/recurrence";
 import FollowUpMenu from "@/components/FollowUpMenu";
+import { REMINDER_OPTIONS } from "@/lib/reminders";
 
 const PRIORITY_COLOR = ["#6E6E7A", "#F06C7C", "#F0A24F", "#56A8F0", "#9A8CF5"];
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -40,6 +41,10 @@ export type TaskDraft = {
   /** For repeating tasks: change just this one, or the whole series. */
   scope?: EditScope;
   shared: boolean;
+  /** "Remind me" lead time in minutes before scheduled_start (null = no
+   * reminder, 0 = at the scheduled time). Only meaningful for a task that's
+   * been placed on a specific time slot — see REMINDER_OPTIONS. */
+  reminder_lead_minutes: number | null;
 };
 
 const field =
@@ -117,6 +122,9 @@ export default function TaskModal({
   );
   const [picking, setPicking] = useState(false);
   const [shared, setShared] = useState(task?.shared ?? false);
+  const [reminderLeadMinutes, setReminderLeadMinutes] = useState<number | null>(
+    task?.reminder_lead_minutes ?? null
+  );
   const [subInput, setSubInput] = useState("");
   const isOwner = mode === "create" || !task || task.user_id === currentUserId;
 
@@ -164,6 +172,7 @@ export default function TaskModal({
       linked_event: linkedEvent,
       scope: mode === "edit" && repeats ? scope : undefined,
       shared,
+      reminder_lead_minutes: task?.scheduled_start ? reminderLeadMinutes : null,
     });
   };
 
@@ -483,6 +492,29 @@ export default function TaskModal({
               className={field}
             />
           </div>
+
+          {task?.scheduled_start ? (
+            <div>
+              <label className={label}>
+                <BellRing className="mr-1 inline h-3 w-3" /> Remind me
+              </label>
+              <select
+                value={reminderLeadMinutes ?? ""}
+                onChange={(e) => setReminderLeadMinutes(e.target.value === "" ? null : parseInt(e.target.value, 10))}
+                className={field}
+              >
+                {REMINDER_OPTIONS.map((o) => (
+                  <option key={o.label} value={o.value ?? ""}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <p className="text-xs text-txt3">
+              Schedule this task to a specific time in Planner to set a text reminder.
+            </p>
+          )}
 
           <div>
             <label className={label}>Related meeting</label>

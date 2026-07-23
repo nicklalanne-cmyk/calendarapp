@@ -95,6 +95,7 @@ export type Task = {
   estimate_minutes: number | null;
   scheduled_start: string | null;
   scheduled_end: string | null;
+  reminder_lead_minutes: number | null;
   google_event_id: string | null;
   google_account_id: string | null;
   google_calendar_id: string | null;

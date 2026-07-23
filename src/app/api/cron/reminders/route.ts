@@ -7,8 +7,8 @@ import { sendSms } from "@/lib/sms";
 import {
   buildTodayScheduleText,
   buildAccomplishedTodayText,
-  findEventReminders,
-  findTaskReminders,
+  findDueTaskReminders,
+  findDueEventReminders,
   formatReminderText,
 } from "@/lib/smsDigests";
 
@@ -202,9 +202,32 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
   if (withPhone.length === 0) return 0;
 
   const userIds = withPhone.map((s) => s.user_id);
+  const phoneByUser = new Map(withPhone.map((s) => [s.user_id, s.phone_number as string]));
+  const now = new Date();
+  let sent = 0;
+
+  // --- per-item reminders: whatever "remind me" was set directly on a
+  // specific event or task (EventModal/TaskModal), independent of the daily
+  // digests below. Every enabled user is checked once per tick regardless of
+  // whether they have any sms_notifications rows at all.
+  const [taskReminders, eventReminders] = await Promise.all([
+    findDueTaskReminders(db, userIds, now, 15),
+    findDueEventReminders(db, userIds, now, 15),
+  ]);
+  for (const m of [...taskReminders.map((m) => ({ m, kind: "task" as const })), ...eventReminders.map((m) => ({ m, kind: "event" as const }))]) {
+    const phone = phoneByUser.get(m.m.userId);
+    if (!phone) continue;
+    const { error: logErr } = await db.from("sms_log").insert({ user_id: m.m.userId, dedupe_key: m.m.dedupeKey });
+    if (logErr) continue; // already sent for this specific occurrence
+    const result = await sendSms(phone, formatReminderText(m.kind, m.m));
+    if (result.ok) sent++;
+  }
+
+  // --- daily digests: today_schedule / accomplished_today / custom, on a
+  // fixed local clock time each user picked in Settings.
   const { data: notifRows } = await db
     .from("sms_notifications")
-    .select("id, user_id, kind, hour, minute, lead_minutes, enabled, message")
+    .select("id, user_id, kind, hour, minute, enabled, message")
     .in("user_id", userIds)
     .eq("enabled", true);
   const notifs =
@@ -212,54 +235,22 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
       id: string;
       user_id: string;
       kind: string;
-      hour: number | null;
-      minute: number | null;
-      lead_minutes: number | null;
+      hour: number;
+      minute: number;
       enabled: boolean;
       message: string | null;
     }[] | null) ?? [];
-  if (notifs.length === 0) return 0;
+  if (notifs.length === 0) return sent;
 
   const { data: tzRows } = await db.from("user_settings").select("user_id, timezone").in("user_id", userIds);
   const tzByUser = new Map<string, string>(
     ((tzRows as { user_id: string; timezone: string }[] | null) ?? []).map((s) => [s.user_id, s.timezone || "UTC"])
   );
-  const phoneByUser = new Map(withPhone.map((s) => [s.user_id, s.phone_number as string]));
-
-  const now = new Date();
-  let sent = 0;
 
   for (const n of notifs) {
     const phone = phoneByUser.get(n.user_id);
     if (!phone) continue;
 
-    if (n.kind === "event_reminder" || n.kind === "task_reminder") {
-      // Fires whenever an event/task's start time lands lead_minutes from
-      // now — no fixed clock time, so no local-hour tick match needed. The
-      // 15-min-wide window matches this cron's own tick cadence, so each
-      // item's start time falls into exactly one tick's window.
-      const leadMinutes = n.lead_minutes ?? 60;
-      const windowStart = new Date(now.getTime() + leadMinutes * 60_000);
-      const windowEnd = new Date(windowStart.getTime() + 15 * 60_000);
-      const matches =
-        n.kind === "event_reminder"
-          ? await findEventReminders(db, n.user_id, windowStart, windowEnd)
-          : await findTaskReminders(db, n.user_id, windowStart, windowEnd);
-
-      for (const m of matches) {
-        const dedupeKey = `sms:${n.id}:${m.id}`;
-        const { error: logErr } = await db.from("sms_log").insert({ user_id: n.user_id, dedupe_key: dedupeKey });
-        if (logErr) continue; // already sent for this event/task instance
-
-        const body = formatReminderText(n.kind, m);
-        const result = await sendSms(phone, body);
-        if (result.ok) sent++;
-      }
-      continue;
-    }
-
-    // --- fixed-clock-time kinds: today_schedule / accomplished_today / custom
-    if (n.hour == null || n.minute == null) continue;
     const tz = tzByUser.get(n.user_id) ?? "UTC";
     const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false }).format(now));
     const localMinute = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, minute: "numeric" }).format(now));

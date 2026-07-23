@@ -769,6 +769,7 @@ export default function Planner() {
       const q = new URLSearchParams({ accountId, calendarId: calendarId ?? "primary" });
       const res = await fetch(`/api/google/events/${targetId}?${q.toString()}`, { method: "DELETE" });
       if (!res.ok) toast("Couldn't delete the event", "error");
+      else await supabase.from("event_reminders").delete().eq("event_id", targetId);
       clearEventsCache();
       loadEvents(true);
     }, 6000);
