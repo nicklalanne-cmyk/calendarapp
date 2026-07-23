@@ -78,6 +78,14 @@ export default function AppShell({
   // so the browser's local timezone (used to format the build time) can't
   // cause a hydration mismatch against the server's.
   const [buildLabel, setBuildLabel] = useState<string | null>(null);
+  // On mobile, the on-screen keyboard shrinks the visualViewport but not
+  // window.innerHeight — a >120px gap between the two is a reliable "keyboard
+  // is up" signal. The bottom nav (and the FAB riding above it) otherwise sits
+  // right on top of whatever input/modal opened the keyboard, since it's
+  // pinned to the bottom of the now-shorter visible area instead of getting
+  // pushed offscreen. Hiding it while the keyboard is open reclaims that
+  // space instead of covering the screen.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
     const sha = (process.env.NEXT_PUBLIC_BUILD_SHA || "dev").slice(0, 7);
@@ -149,6 +157,7 @@ export default function AppShell({
       const vv = window.visualViewport;
       const h = vv ? vv.height : window.innerHeight;
       document.documentElement.style.setProperty("--app-height", `${h}px`);
+      setKeyboardOpen(vv ? window.innerHeight - vv.height > 120 : false);
     };
     setAppHeight();
     window.visualViewport?.addEventListener("resize", setAppHeight);
@@ -486,7 +495,10 @@ export default function AppShell({
 
         {/* ---------------- mobile bottom nav ---------------- */}
         <nav
-          className="flex shrink-0 items-center justify-around border-t border-border bg-bg px-1 pt-1.5 lg:hidden"
+          className={clsx(
+            "shrink-0 items-center justify-around border-t border-border bg-bg px-1 pt-1.5 lg:hidden",
+            keyboardOpen ? "hidden" : "flex"
+          )}
           style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
         >
           {mobileNav.map((n) => (
