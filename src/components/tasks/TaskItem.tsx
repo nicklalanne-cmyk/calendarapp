@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Task } from "@/lib/types";
-import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays, Users, Layers, SlidersHorizontal } from "lucide-react";
+import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays, Users, Layers, SlidersHorizontal, ChevronRight, ChevronDown } from "lucide-react";
 import clsx from "clsx";
 import { format, parseISO } from "date-fns";
 import EditableTitle from "@/components/tasks/EditableTitle";
@@ -51,6 +51,17 @@ function guideColor(depth: number) {
   return DEPTH_GUIDE[Math.min(depth, DEPTH_GUIDE.length - 1)];
 }
 
+// A group task (one with its own subtasks) can't be checked off until
+// every descendant — recursively, not just its immediate children — is
+// done. This walks the whole subtree rather than trusting a child's own
+// is_done flag in isolation, so it stays correct even for data that
+// predates this rule.
+function allDescendantsDone(taskId: string, allTasks: Task[]): boolean {
+  const children = allTasks.filter((t) => t.parent_id === taskId);
+  if (children.length === 0) return true;
+  return children.every((c) => c.is_done && allDescendantsDone(c.id, allTasks));
+}
+
 /** One subtask row, recursively rendering its own subtasks beneath it —
  * this is what makes "task groups" possible: a subtask like "Handle by
  * school" can itself hold a nested checklist, indented one level further
@@ -79,11 +90,13 @@ function SubtaskNode({
 }) {
   const [adding, setAdding] = useState(false);
   const [sub, setSub] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
   const children = allTasks.filter((t) => t.parent_id === task.id);
   const doneCount = children.filter((c) => c.is_done).length;
   const canNest = depth < MAX_SUBTASK_DEPTH;
   const isGroup = children.length > 0;
   const chip = task.due_date ? dueChip(task.due_date, task.due_kind ?? "day") : null;
+  const canComplete = !isGroup || allDescendantsDone(task.id, allTasks);
 
   const submitSub = () => {
     const v = sub.trim();
@@ -91,6 +104,11 @@ function SubtaskNode({
     onAddSubtask(task, v);
     setSub("");
     setAdding(false);
+  };
+
+  const startAdding = () => {
+    setCollapsed(false);
+    setAdding((v) => !v);
   };
 
   return (
@@ -101,11 +119,31 @@ function SubtaskNode({
           isGroup && "bg-surface2/60"
         )}
       >
+        {isGroup ? (
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? "Expand" : "Collapse"}
+            className="shrink-0 rounded p-0.5 text-txt3 hover:text-txt"
+          >
+            {collapsed ? (
+              <ChevronRight className="h-3.5 w-3.5 md:h-3 md:w-3" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 md:h-3 md:w-3" />
+            )}
+          </button>
+        ) : (
+          <span className="inline-block h-3.5 w-3.5 shrink-0 md:h-3 md:w-3" aria-hidden />
+        )}
         <button
-          onClick={() => onToggle(task)}
+          onClick={() => {
+            if (!task.is_done && !canComplete) return;
+            onToggle(task);
+          }}
+          title={!task.is_done && !canComplete ? "Complete all subtasks first" : undefined}
           className={clsx(
             "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 md:h-4 md:w-4 md:border",
-            task.is_done ? "border-accent bg-accent text-white" : "border-txt3"
+            task.is_done ? "border-accent bg-accent text-white" : "border-txt3",
+            !task.is_done && !canComplete && "cursor-not-allowed opacity-40"
           )}
         >
           {task.is_done && <Check className="h-2.5 w-2.5" />}
@@ -150,7 +188,7 @@ function SubtaskNode({
         </button>
         {canNest && (
           <button
-            onClick={() => setAdding((v) => !v)}
+            onClick={startAdding}
             title="Add nested item"
             className="shrink-0 rounded-lg p-1.5 text-txt3 transition active:bg-surface2 md:p-0 md:opacity-0 md:hover:text-accent md:group-hover/s:opacity-100"
           >
@@ -165,7 +203,7 @@ function SubtaskNode({
         </button>
       </div>
 
-      {((canNest && children.length > 0) || adding) && (
+      {((canNest && children.length > 0 && !collapsed) || adding) && (
         <div className={clsx("ml-[22px] border-l pl-2", guideColor(depth))}>
           {children.map((c) => (
             <SubtaskNode
@@ -234,11 +272,14 @@ export default function TaskItem({
   const tasksForNesting = allTasks ?? subtasks;
   const [adding, setAdding] = useState(false);
   const [sub, setSub] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
   const chip = task.due_date ? dueChip(task.due_date, task.due_kind ?? "day") : null;
   const pColor = task.priority > 0 ? PRIORITY_COLOR[task.priority] : undefined;
   const doneCount = subtasks.filter((s) => s.is_done).length;
   const tags = task.tags ?? [];
   const repeats = Boolean(task.rrule || task.repeat);
+  const isGroupTask = subtasks.length > 0;
+  const canComplete = !isGroupTask || allDescendantsDone(task.id, tasksForNesting);
 
   const submitSub = () => {
     const v = sub.trim();
@@ -246,6 +287,11 @@ export default function TaskItem({
     onAddSubtask(task, v);
     setSub("");
     setAdding(false);
+  };
+
+  const startAdding = () => {
+    setCollapsed(false);
+    setAdding((v) => !v);
   };
 
   return (
@@ -263,12 +309,33 @@ export default function TaskItem({
       >
         <GripVertical className="hidden h-3.5 w-3.5 shrink-0 cursor-grab text-txt3 opacity-30 transition-opacity group-hover:opacity-100 md:block" />
 
+        {isGroupTask ? (
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? "Expand subtasks" : "Collapse subtasks"}
+            className="mt-0.5 shrink-0 rounded p-0.5 text-txt3 hover:text-txt md:mt-0"
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4 md:h-3.5 md:w-3.5" />
+            ) : (
+              <ChevronDown className="h-4 w-4 md:h-3.5 md:w-3.5" />
+            )}
+          </button>
+        ) : (
+          <span className="mt-0.5 inline-block h-4 w-4 shrink-0 md:mt-0 md:h-3.5 md:w-3.5" aria-hidden />
+        )}
+
         <button
-          onClick={() => onToggle(task)}
+          onClick={() => {
+            if (!task.is_done && !canComplete) return;
+            onToggle(task);
+          }}
           aria-label={task.is_done ? "Mark incomplete" : "Mark complete"}
+          title={!task.is_done && !canComplete ? "Complete all subtasks first" : undefined}
           className={clsx(
             "ml-1 mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition md:ml-0 md:mt-0 md:h-[18px] md:w-[18px] md:border",
-            task.is_done ? "border-accent bg-accent text-white" : "border-txt3 hover:border-accent"
+            task.is_done ? "border-accent bg-accent text-white" : "border-txt3 hover:border-accent",
+            !task.is_done && !canComplete && "cursor-not-allowed opacity-40 hover:border-txt3"
           )}
         >
           {task.is_done && <Check className="h-3.5 w-3.5 md:h-2.5 md:w-2.5" />}
@@ -362,7 +429,7 @@ export default function TaskItem({
               <FileText className="h-4 w-4" />
             </button>
             <button
-              onClick={() => setAdding((v) => !v)}
+              onClick={startAdding}
               title="Add subtask"
               className="rounded-lg p-1.5 text-txt3 active:bg-surface2"
             >
@@ -407,7 +474,7 @@ export default function TaskItem({
             <FileText className="h-3.5 w-3.5" />
           </button>
           <button
-            onClick={() => setAdding((v) => !v)}
+            onClick={startAdding}
             title="Add subtask"
             className="rounded-lg p-1 text-txt3 hover:bg-surface2 hover:text-txt"
           >
@@ -444,7 +511,7 @@ export default function TaskItem({
         )}
       </div>
 
-      {(subtasks.length > 0 || adding) && (
+      {((subtasks.length > 0 && !collapsed) || adding) && (
         <div className="ml-[26px] border-l border-border pl-2">
           {subtasks.map((st) => (
             <SubtaskNode

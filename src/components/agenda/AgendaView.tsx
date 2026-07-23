@@ -425,6 +425,10 @@ export default function AgendaView() {
 
   const toggleSubtask = async (t: Task) => {
     const next = !t.is_done;
+    if (next && !allDescendantsDone(t.id)) {
+      toast("Complete all subtasks first", "error");
+      return;
+    }
     setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: next } : x)));
     const { error } = await supabase.from("tasks").update({ is_done: next }).eq("id", t.id);
     if (error) {
@@ -600,7 +604,20 @@ export default function AgendaView() {
     load(true);
   };
 
+  // A task with its own subtasks (a "group") can't be checked off until
+  // every descendant is done — walks the whole subtree, not just the
+  // immediate children, so it stays correct however deep the nesting goes.
+  const allDescendantsDone = (taskId: string): boolean => {
+    const children = tasks.filter((x) => x.parent_id === taskId);
+    if (children.length === 0) return true;
+    return children.every((c) => c.is_done && allDescendantsDone(c.id));
+  };
+
   const completeTask = async (t: Task) => {
+    if (!allDescendantsDone(t.id)) {
+      toast("Complete all subtasks first", "error");
+      return;
+    }
     // Optimistic — checking a task off shouldn't wait on a round trip.
     setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: true } : x)));
     const { error } = await supabase.from("tasks").update({ is_done: true }).eq("id", t.id);

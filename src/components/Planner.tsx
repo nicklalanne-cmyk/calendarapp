@@ -367,8 +367,21 @@ export default function Planner() {
     loadTasks();
   };
 
+  // A task with its own subtasks (a "group") can't be checked off until
+  // every descendant is done — walks the whole subtree, not just the
+  // immediate children, so it stays correct however deep the nesting goes.
+  const allDescendantsDone = (taskId: string): boolean => {
+    const children = tasks.filter((x) => x.parent_id === taskId);
+    if (children.length === 0) return true;
+    return children.every((c) => c.is_done && allDescendantsDone(c.id));
+  };
+
   const toggleTask = async (t: Task) => {
     const completing = !t.is_done;
+    if (completing && !allDescendantsDone(t.id)) {
+      toast("Complete all subtasks first", "error");
+      return;
+    }
     // Optimistic — a checkbox click should feel instant, not wait on a round
     // trip. loadTasks() below still reconciles with the server afterward.
     setTasks((cur) => cur.map((x) => (x.id === t.id ? { ...x, is_done: completing } : x)));
