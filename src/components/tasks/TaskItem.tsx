@@ -38,9 +38,127 @@ function estimateLabel(m: number) {
   return m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m}m`;
 }
 
+// How many levels of nested subtasks a subtask can itself have — a safety
+// cap on indentation/recursion depth, not a hard product limit (nobody
+// should hit this in practice for a task list).
+const MAX_SUBTASK_DEPTH = 6;
+
+/** One subtask row, recursively rendering its own subtasks beneath it —
+ * this is what makes "task groups" possible: a subtask like "Handle by
+ * school" can itself hold a nested checklist, indented one level further
+ * each time, the same way a bullet list nests sub-bullets. */
+function SubtaskNode({
+  task,
+  depth,
+  allTasks,
+  onToggle,
+  onDelete,
+  onAddSubtask,
+  onEditSubtask,
+}: {
+  task: Task;
+  depth: number;
+  allTasks: Task[];
+  onToggle: (t: Task) => void;
+  onDelete: (t: Task) => void;
+  onAddSubtask: (parent: Task, title: string) => void;
+  onEditSubtask?: (subtask: Task, title: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [sub, setSub] = useState("");
+  const children = allTasks.filter((t) => t.parent_id === task.id);
+  const doneCount = children.filter((c) => c.is_done).length;
+  const canNest = depth < MAX_SUBTASK_DEPTH;
+
+  const submitSub = () => {
+    const v = sub.trim();
+    if (!v) return;
+    onAddSubtask(task, v);
+    setSub("");
+    setAdding(false);
+  };
+
+  return (
+    <div>
+      <div className="group/s flex items-center gap-2 rounded px-1 py-2 hover:bg-surface md:py-1">
+        <button
+          onClick={() => onToggle(task)}
+          className={clsx(
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 md:h-4 md:w-4 md:border",
+            task.is_done ? "border-accent bg-accent text-white" : "border-txt3"
+          )}
+        >
+          {task.is_done && <Check className="h-2.5 w-2.5" />}
+        </button>
+        <EditableTitle
+          value={task.title}
+          onSave={(title) => onEditSubtask?.(task, title)}
+          disabled={!onEditSubtask}
+          className={clsx(
+            "min-w-0 flex-1 truncate text-sm md:text-xs",
+            task.is_done ? "text-txt3 line-through" : "text-txt2"
+          )}
+        />
+        {children.length > 0 && (
+          <span className="shrink-0 text-[10px] text-txt3 tabular-nums md:text-[10px]">
+            {doneCount}/{children.length}
+          </span>
+        )}
+        {canNest && (
+          <button
+            onClick={() => setAdding((v) => !v)}
+            title="Add nested item"
+            className="shrink-0 rounded-lg p-1.5 text-txt3 transition active:bg-surface2 md:p-0 md:opacity-0 md:hover:text-accent md:group-hover/s:opacity-100"
+          >
+            <Plus className="h-4 w-4 md:h-3 md:w-3" />
+          </button>
+        )}
+        <button
+          onClick={() => onDelete(task)}
+          className="shrink-0 rounded-lg p-1.5 text-txt3 transition active:bg-surface2 md:p-0 md:opacity-0 md:hover:text-danger md:group-hover/s:opacity-100"
+        >
+          <Trash2 className="h-4 w-4 md:h-3 md:w-3" />
+        </button>
+      </div>
+
+      {((canNest && children.length > 0) || adding) && (
+        <div className="ml-[22px] border-l border-border pl-2">
+          {children.map((c) => (
+            <SubtaskNode
+              key={c.id}
+              task={c}
+              depth={depth + 1}
+              allTasks={allTasks}
+              onToggle={onToggle}
+              onDelete={onDelete}
+              onAddSubtask={onAddSubtask}
+              onEditSubtask={onEditSubtask}
+            />
+          ))}
+          {adding && (
+            <input
+              autoFocus
+              value={sub}
+              onChange={(e) => setSub(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitSub();
+                if (e.key === "Escape") setAdding(false);
+              }}
+              onBlur={() => (sub.trim() ? submitSub() : setAdding(false))}
+              placeholder="Nested item…"
+              className="w-full bg-transparent px-1 py-1 text-xs outline-none placeholder:text-txt3"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TaskItem({
   task,
   subtasks,
+  allTasks,
   onToggle,
   onDelete,
   onCyclePriority,
@@ -51,7 +169,12 @@ export default function TaskItem({
   onSchedule,
 }: {
   task: Task;
+  /** This task's own immediate subtasks (tasks whose parent_id === task.id). */
   subtasks: Task[];
+  /** The full active task list — used to resolve each subtask's own nested
+   * subtasks recursively. Falls back to `subtasks` (no deeper nesting) if a
+   * caller doesn't have the full list handy. */
+  allTasks?: Task[];
   onToggle: (t: Task) => void;
   onDelete: (t: Task) => void;
   onCyclePriority: (t: Task) => void;
@@ -63,6 +186,7 @@ export default function TaskItem({
   onOpenTask: (t: Task) => void;
   onSchedule: (t: Task) => void;
 }) {
+  const tasksForNesting = allTasks ?? subtasks;
   const [adding, setAdding] = useState(false);
   const [sub, setSub] = useState("");
   const chip = task.due_date ? dueChip(task.due_date, task.due_kind ?? "day") : null;
@@ -278,32 +402,16 @@ export default function TaskItem({
       {(subtasks.length > 0 || adding) && (
         <div className="ml-[26px] border-l border-border pl-2">
           {subtasks.map((st) => (
-            <div key={st.id} className="group/s flex items-center gap-2 rounded px-1 py-2 hover:bg-surface md:py-1">
-              <button
-                onClick={() => onToggle(st)}
-                className={clsx(
-                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 md:h-4 md:w-4 md:border",
-                  st.is_done ? "border-accent bg-accent text-white" : "border-txt3"
-                )}
-              >
-                {st.is_done && <Check className="h-2.5 w-2.5" />}
-              </button>
-              <EditableTitle
-                value={st.title}
-                onSave={(title) => onEditSubtask?.(st, title)}
-                disabled={!onEditSubtask}
-                className={clsx(
-                  "min-w-0 flex-1 truncate text-sm md:text-xs",
-                  st.is_done ? "text-txt3 line-through" : "text-txt2"
-                )}
-              />
-              <button
-                onClick={() => onDelete(st)}
-                className="shrink-0 rounded-lg p-1.5 text-txt3 transition active:bg-surface2 md:p-0 md:opacity-0 md:hover:text-danger md:group-hover/s:opacity-100"
-              >
-                <Trash2 className="h-4 w-4 md:h-3 md:w-3" />
-              </button>
-            </div>
+            <SubtaskNode
+              key={st.id}
+              task={st}
+              depth={1}
+              allTasks={tasksForNesting}
+              onToggle={onToggle}
+              onDelete={onDelete}
+              onAddSubtask={onAddSubtask}
+              onEditSubtask={onEditSubtask}
+            />
           ))}
           {adding && (
             <input

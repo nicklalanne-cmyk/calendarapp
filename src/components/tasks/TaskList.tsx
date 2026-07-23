@@ -191,6 +191,7 @@ export default function TaskList({
                   <TaskItem
                     task={t}
                     subtasks={children.get(t.id) ?? []}
+                    allTasks={tasks}
                     onToggle={onToggle}
                     onDelete={onDelete}
                     onCyclePriority={onCyclePriority}
@@ -207,6 +208,7 @@ export default function TaskList({
                 key={t.id}
                 task={t}
                 subtasks={children.get(t.id) ?? []}
+                    allTasks={tasks}
                 onToggle={onToggle}
                 onDelete={onDelete}
                 onCyclePriority={onCyclePriority}

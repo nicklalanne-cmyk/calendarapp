@@ -403,6 +403,7 @@ export default function TasksView() {
                   key={t.id}
                   task={t}
                   subtasks={children.get(t.id) ?? []}
+                  allTasks={tasks}
                   onToggle={toggleTask}
                   onDelete={deleteTask}
                   onCyclePriority={cyclePriority}
@@ -425,6 +426,7 @@ export default function TasksView() {
                   key={t.id}
                   task={t}
                   subtasks={children.get(t.id) ?? []}
+                  allTasks={tasks}
                   onToggle={toggleTask}
                   onDelete={deleteTask}
                   onCyclePriority={cyclePriority}
@@ -457,6 +459,7 @@ export default function TasksView() {
                     key={t.id}
                     task={t}
                     subtasks={children.get(t.id) ?? []}
+                  allTasks={tasks}
                     onToggle={toggleTask}
                     onDelete={deleteTask}
                     onCyclePriority={cyclePriority}
