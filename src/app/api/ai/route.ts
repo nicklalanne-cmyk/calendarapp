@@ -27,6 +27,7 @@ const MAX_TURNS = 8;
 
 type ContentBlock =
   | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
 
@@ -284,7 +285,8 @@ Rules:
 - When creating events, always include a timezone offset in the ISO datetimes.
 - Default an event to 1 hour if the user doesn't give a duration.
 - You can also create and manage automations — rules that run automatically (recurring tasks, follow-ups after completing a task, prep tasks before events, due-soon nudges, and "if a task has this tag/project, set this priority/project/tag" conditional updates). If the user describes a recurring behavior they want ("whenever I tag something urgent, make it P1", "remind me to prep before every meeting"), prefer creating an automation over doing a one-off action, unless they clearly just want it done once.
-- Be brief. Confirm what changed in one or two sentences — no bulleted recaps.`;
+- Be brief. Confirm what changed in one or two sentences — no bulleted recaps.
+- The user can attach photos (a whiteboard list, a handwritten note, a receipt, a screenshot of a text/email). Read them and act on what they show — e.g. turn a photo of a punch list into several create_task calls — the same as if the user had typed it out, rather than just describing the image back to them.`;
 
   // ---- tool implementations -------------------------------------------------
 
