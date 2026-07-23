@@ -103,6 +103,18 @@ export async function POST(request: NextRequest) {
       description: body.description ?? null,
       recurrence: body.recurrence ?? null,
     });
+
+    // Reminders default on: every newly created timed event gets a 1-hour-
+    // before text reminder automatically (editable/removable afterward via
+    // the "Remind me" picker in the event modal). All-day events have no
+    // specific time to count down from, so they're skipped.
+    if (!body.allDay) {
+      await supabase
+        .from("event_reminders")
+        .insert({ user_id: user.id, account_id: target.id, calendar_id: calendarId, event_id: e.id, lead_minutes: 60 })
+        .then(() => {}, () => {});
+    }
+
     return NextResponse.json({
       event: mapEvent(e, {
         accountId: target.id,

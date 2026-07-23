@@ -126,7 +126,11 @@ export default function EventModal({
   // "Remind me" — a text a configurable lead time before this event starts.
   // Only meaningful for an already-created, timed event (a brand-new event
   // has no id yet to attach a reminder row to; save it first, then reopen).
-  const [reminderLeadMinutes, setReminderLeadMinutes] = useState<number | null>(null);
+  // Defaults to 1 hour before — reminders are opt-out, not opt-in. New
+  // events get an actual event_reminders row from the create API itself
+  // (see /api/google/events); this default just covers the gap before that
+  // fetch resolves, and pre-existing events that never got one.
+  const [reminderLeadMinutes, setReminderLeadMinutes] = useState<number | null>(60);
   const [savingReminder, setSavingReminder] = useState(false);
 
   useEffect(() => {
@@ -144,7 +148,7 @@ export default function EventModal({
       ]);
       if (!alive) return;
       setShared(Boolean(sharedRow));
-      setReminderLeadMinutes((reminderRow as { lead_minutes: number } | null)?.lead_minutes ?? null);
+      setReminderLeadMinutes((reminderRow as { lead_minutes: number } | null)?.lead_minutes ?? 60);
     })();
     return () => {
       alive = false;

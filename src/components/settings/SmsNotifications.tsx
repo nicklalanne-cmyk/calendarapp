@@ -67,6 +67,27 @@ export default function SmsNotifications() {
         .order("hour", { ascending: true })
         .order("minute", { ascending: true }),
     ]);
+
+    // First time this user's ever opened this section (no sms_settings row
+    // yet) — text notifications default ON, with the same starter pair of
+    // digests Nick set up, rather than a cold empty section someone has to
+    // discover and configure from scratch.
+    if (!settingsRow) {
+      await supabase.from("sms_settings").upsert({ user_id: u.user.id, enabled: true });
+      const { data: seeded } = await supabase
+        .from("sms_notifications")
+        .insert([
+          { user_id: u.user.id, kind: "today_schedule", label: "Today's Schedule", hour: 7, minute: 0, enabled: true },
+          { user_id: u.user.id, kind: "accomplished_today", label: "Accomplished Today", hour: 20, minute: 0, enabled: true },
+        ])
+        .select("id, kind, label, hour, minute, enabled, message");
+      setEnabled(true);
+      setPhone("");
+      setNotifs((seeded as Notification[] | null) ?? []);
+      setLoaded(true);
+      return;
+    }
+
     setEnabled((settingsRow as { enabled: boolean } | null)?.enabled ?? false);
     setPhone((settingsRow as { phone_number: string | null } | null)?.phone_number ?? "");
     setNotifs((notifRows as Notification[] | null) ?? []);

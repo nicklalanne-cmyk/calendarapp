@@ -122,8 +122,10 @@ export default function TaskModal({
   );
   const [picking, setPicking] = useState(false);
   const [shared, setShared] = useState(task?.shared ?? false);
+  // Defaults to 1 hour before for anything that hasn't had a reminder
+  // explicitly configured yet — reminders are opt-out, not opt-in.
   const [reminderLeadMinutes, setReminderLeadMinutes] = useState<number | null>(
-    task?.reminder_lead_minutes ?? null
+    task?.reminder_lead_minutes ?? 60
   );
   const [subInput, setSubInput] = useState("");
   const isOwner = mode === "create" || !task || task.user_id === currentUserId;
