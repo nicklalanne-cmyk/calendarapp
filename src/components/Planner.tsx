@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { addDays, addMonths, format } from "date-fns";
 import { ChevronLeft, ChevronRight, Link2, ListTodo, Loader2, CalendarPlus, HelpCircle, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { Task, CalendarEvent } from "@/lib/types";
+import type { Task, CalendarEvent, SharedEvent } from "@/lib/types";
 import { dayRange, weekRange, monthRange, fmtDayHeader, fmtMonthYear } from "@/lib/dates";
 import { nextDue, type ParsedTask } from "@/lib/tasks";
 import { toISODate } from "@/lib/recurrence";
@@ -40,6 +40,7 @@ export default function Planner() {
   const [date, setDate] = useState<Date>(new Date());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [sharedEvents, setSharedEvents] = useState<SharedEvent[]>([]);
   const [draft, setDraft] = useState<EventDraft | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
@@ -153,12 +154,30 @@ export default function Planner() {
     [view, date]
   );
 
+  // Events a partner shared via the in-app fallback (they had no Google
+  // account to send a real invite to) — this used to only be fetched in
+  // Agenda, so any month/week/day view here silently never showed them even
+  // though the data existed. RLS only returns rows the partner shared with
+  // you, same as Agenda's query.
+  const loadSharedEvents = useCallback(async () => {
+    const range = view === "day" ? dayRange(date) : view === "week" ? weekRange(date) : monthRange(date);
+    const { data } = await supabase
+      .from("shared_events")
+      .select("*")
+      .gte("start_at", range.start.toISOString())
+      .lte("start_at", range.end.toISOString());
+    setSharedEvents((data as SharedEvent[]) ?? []);
+  }, [supabase, view, date]);
+
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
+  useEffect(() => {
+    loadSharedEvents();
+  }, [loadSharedEvents]);
   // Background refresh every 10 minutes so data stays fresh without any
   // user-initiated navigation having to pay for it.
   useEffect(() => {
@@ -1063,6 +1082,7 @@ export default function Planner() {
             <MonthView
               date={date}
               events={gridEvents}
+              sharedEvents={sharedEvents}
               onPickDay={(d) => {
                 setDate(d);
                 setView("day");

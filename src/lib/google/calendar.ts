@@ -160,7 +160,17 @@ export async function updateEventRaw(
     allDay?: boolean;
     location?: string | null;
     description?: string | null;
-  }
+    /** Full replacement attendee list (Google's PATCH semantics for
+     * `attendees` is a full overwrite, not a merge) — callers that want to
+     * add/remove one attendee must fetch the current list first via
+     * `getEventRaw` and pass the adjusted array back in. */
+    attendees?: { email: string }[];
+  },
+  /** "all" actually emails the invite/update/cancellation to attendees —
+   * required for this to behave like a real Google Calendar invite instead
+   * of a silent attendee-list edit. Omitted (Google's own default, "none")
+   * for ordinary title/time/location edits that don't involve attendees. */
+  sendUpdates?: "all" | "externalOnly" | "none"
 ): Promise<GEvent> {
   const body: Record<string, unknown> = {};
   if (patch.title !== undefined) body.summary = patch.title;
@@ -168,15 +178,26 @@ export async function updateEventRaw(
   if (patch.end !== undefined) body.end = patch.allDay ? { date: patch.end } : { dateTime: patch.end };
   if (patch.location !== undefined) body.location = patch.location;
   if (patch.description !== undefined) body.description = patch.description;
+  if (patch.attendees !== undefined) body.attendees = patch.attendees;
+  const url = new URL(
+    `${CAL_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`
+  );
+  if (sendUpdates) url.searchParams.set("sendUpdates", sendUpdates);
+  const res = await fetch(url.toString(), {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`events.patch failed: ${res.status}`);
+  return (await res.json()) as GEvent;
+}
+
+export async function getEventRaw(accessToken: string, calendarId: string, eventId: string): Promise<GEvent> {
   const res = await fetch(
     `${CAL_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }
+    { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }
   );
-  if (!res.ok) throw new Error(`events.patch failed: ${res.status}`);
+  if (!res.ok) throw new Error(`events.get failed: ${res.status}`);
   return (await res.json()) as GEvent;
 }
 

@@ -147,11 +147,22 @@ export default function EventModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.id]);
 
+  // "Share" tries a real Google Calendar invite first — adds the partner as
+  // an actual attendee (sendUpdates=all), so Google emails them and it lands
+  // on their real calendar, not just a read-only copy inside Cadence. Only
+  // falls back to the old denormalised `shared_events` snapshot if the
+  // partner hasn't connected a Google account to invite.
   const toggleShare = async () => {
     if (!draft.id || !currentUserId) return;
     setSharing(true);
     try {
       if (shared) {
+        if (draft.accountId) {
+          await fetch(
+            `/api/google/events/${draft.id}/invite-partner?accountId=${draft.accountId}&calendarId=${encodeURIComponent(draft.calendarId ?? "primary")}`,
+            { method: "DELETE" }
+          ).catch(() => null);
+        }
         const { error } = await supabase
           .from("shared_events")
           .delete()
@@ -161,6 +172,26 @@ export default function EventModal({
         setShared(false);
         toast("Unshared");
       } else {
+        if (draft.accountId) {
+          const res = await fetch(
+            `/api/google/events/${draft.id}/invite-partner?accountId=${draft.accountId}&calendarId=${encodeURIComponent(draft.calendarId ?? "primary")}`,
+            { method: "POST" }
+          );
+          const j = await res.json().catch(() => ({}));
+          if (res.ok && (j.invited || j.alreadyInvited)) {
+            setShared(true);
+            toast(`Invited ${j.email} — it'll show on their Google Calendar`);
+            return;
+          }
+          if (j.error === "partner_no_google_account") {
+            toast("Your partner hasn't connected a Google account — sharing inside Cadence only", "error");
+          } else if (j.error === "no_partner_linked") {
+            toast("No partner account linked yet", "error");
+            return;
+          }
+          // Any other failure (token issue, API error): fall through to the
+          // in-app-only snapshot below rather than losing the share entirely.
+        }
         const row = {
           owner_user_id: currentUserId,
           account_id: draft.accountId ?? null,
@@ -177,7 +208,6 @@ export default function EventModal({
           .upsert(row, { onConflict: "owner_user_id,event_id" });
         if (error) throw new Error(error.message);
         setShared(true);
-        toast("Shared with your partner");
       }
     } catch (e) {
       toast((e as Error).message, "error");

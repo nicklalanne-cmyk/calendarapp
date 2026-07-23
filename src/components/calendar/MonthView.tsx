@@ -1,18 +1,24 @@
 "use client";
 
 import { format, isSameDay, isSameMonth } from "date-fns";
+import { Users } from "lucide-react";
 import { monthGridDays, minutesOfDay } from "@/lib/dates";
-import type { CalendarEvent } from "@/lib/types";
+import type { CalendarEvent, SharedEvent } from "@/lib/types";
 import clsx from "clsx";
 
 export default function MonthView({
   date,
   events,
+  sharedEvents = [],
   onPickDay,
   onEventClick,
 }: {
   date: Date;
   events: CalendarEvent[];
+  /** Events a partner shared that didn't become a real Google invite (they
+   * had no Google account connected) — read-only, shown alongside real
+   * events. See the same fallback in AgendaView/EventModal's toggleShare. */
+  sharedEvents?: SharedEvent[];
   onPickDay: (d: Date) => void;
   onEventClick: (e: CalendarEvent) => void;
 }) {
@@ -25,6 +31,12 @@ export default function MonthView({
     const key = format(new Date(ev.start), "yyyy-MM-dd");
     if (!byDay.has(key)) byDay.set(key, []);
     byDay.get(key)!.push(ev);
+  }
+  const sharedByDay = new Map<string, SharedEvent[]>();
+  for (const ev of sharedEvents) {
+    const key = format(new Date(ev.start_at), "yyyy-MM-dd");
+    if (!sharedByDay.has(key)) sharedByDay.set(key, []);
+    sharedByDay.get(key)!.push(ev);
   }
 
   return (
@@ -47,6 +59,7 @@ export default function MonthView({
           const dayEvents = (byDay.get(format(day, "yyyy-MM-dd")) ?? []).sort(
             (a, b) => minutesOfDay(new Date(a.start)) - minutesOfDay(new Date(b.start))
           );
+          const daySharedEvents = sharedByDay.get(format(day, "yyyy-MM-dd")) ?? [];
           return (
             <div
               key={day.toISOString()}
@@ -92,6 +105,18 @@ export default function MonthView({
                     +{dayEvents.length - MAX}
                   </span>
                 )}
+                {daySharedEvents.slice(0, Math.max(0, MAX - dayEvents.length)).map((ev) => (
+                  <div
+                    key={`shared:${ev.id}`}
+                    title={`${ev.title} — shared with you by your partner`}
+                    className="flex items-center gap-1 overflow-hidden rounded-[3px] bg-accent/15 px-1 py-[1px] text-left md:rounded md:px-1 md:py-0"
+                  >
+                    <Users className="hidden h-2 w-2 shrink-0 text-accentSoft md:block" />
+                    <span className="truncate text-[9px] leading-[13px] text-accentSoft md:text-[11px] md:leading-normal">
+                      {ev.title}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           );
