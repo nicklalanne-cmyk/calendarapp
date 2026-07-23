@@ -1000,12 +1000,12 @@ export default function AgendaView() {
             .filter((t) => (t.due_kind ?? "day") === "week" && t.due_date === dayWeekStart)
             .sort(taskOrderCmp);
     const dayTasks = [...dayOnlyTasks, ...weekKindTasks];
-    const daySharedEvents =
-      mode === "day"
-        ? sharedEvents
-            .filter((e) => isSameDay(parseISO(e.start_at), day))
-            .sort((a, b) => a.start_at.localeCompare(b.start_at))
-        : [];
+    // Previously gated to mode === "day" only, so anything a partner shared
+    // silently never appeared while viewing Week (the default agenda view) —
+    // shown regardless of mode now, same as real events and tasks.
+    const daySharedEvents = sharedEvents
+      .filter((e) => isSameDay(parseISO(e.start_at), day))
+      .sort((a, b) => a.start_at.localeCompare(b.start_at));
 
     const emptyDay = dayEvents.length === 0 && dayTasks.length === 0 && daySharedEvents.length === 0;
     // line-clamp-2 wraps at word boundaries (unlike break-words alone, which
