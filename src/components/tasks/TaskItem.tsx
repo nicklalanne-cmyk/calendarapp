@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Task } from "@/lib/types";
-import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays, Users } from "lucide-react";
+import { Check, GripVertical, Trash2, Flag, Repeat, Plus, Hash, FileText, Clock, CalendarPlus, CalendarDays, Users, Layers, SlidersHorizontal } from "lucide-react";
 import clsx from "clsx";
 import { format, parseISO } from "date-fns";
 import EditableTitle from "@/components/tasks/EditableTitle";
@@ -43,10 +43,21 @@ function estimateLabel(m: number) {
 // should hit this in practice for a task list).
 const MAX_SUBTASK_DEPTH = 6;
 
+// Deepening indent-guide color per level so "how far nested is this" is
+// visible at a glance instead of every level looking like the same flat
+// gray line — darkens/saturates toward the accent color as depth increases.
+const DEPTH_GUIDE = ["border-border", "border-accent/25", "border-accent/40", "border-accent/55", "border-accent/70"];
+function guideColor(depth: number) {
+  return DEPTH_GUIDE[Math.min(depth, DEPTH_GUIDE.length - 1)];
+}
+
 /** One subtask row, recursively rendering its own subtasks beneath it —
  * this is what makes "task groups" possible: a subtask like "Handle by
  * school" can itself hold a nested checklist, indented one level further
- * each time, the same way a bullet list nests sub-bullets. */
+ * each time, the same way a bullet list nests sub-bullets. A row that has
+ * its own children is visually treated as a "group" (bold, a small stack
+ * icon, tinted background) rather than looking identical to a plain leaf
+ * subtask, so the two are easy to tell apart at a glance. */
 function SubtaskNode({
   task,
   depth,
@@ -55,6 +66,7 @@ function SubtaskNode({
   onDelete,
   onAddSubtask,
   onEditSubtask,
+  onOpenTask,
 }: {
   task: Task;
   depth: number;
@@ -63,12 +75,15 @@ function SubtaskNode({
   onDelete: (t: Task) => void;
   onAddSubtask: (parent: Task, title: string) => void;
   onEditSubtask?: (subtask: Task, title: string) => void;
+  onOpenTask: (t: Task) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [sub, setSub] = useState("");
   const children = allTasks.filter((t) => t.parent_id === task.id);
   const doneCount = children.filter((c) => c.is_done).length;
   const canNest = depth < MAX_SUBTASK_DEPTH;
+  const isGroup = children.length > 0;
+  const chip = task.due_date ? dueChip(task.due_date, task.due_kind ?? "day") : null;
 
   const submitSub = () => {
     const v = sub.trim();
@@ -80,7 +95,12 @@ function SubtaskNode({
 
   return (
     <div>
-      <div className="group/s flex items-center gap-2 rounded px-1 py-2 hover:bg-surface md:py-1">
+      <div
+        className={clsx(
+          "group/s flex items-center gap-2 rounded px-1 py-2 hover:bg-surface md:py-1",
+          isGroup && "bg-surface2/60"
+        )}
+      >
         <button
           onClick={() => onToggle(task)}
           className={clsx(
@@ -90,20 +110,44 @@ function SubtaskNode({
         >
           {task.is_done && <Check className="h-2.5 w-2.5" />}
         </button>
+        {isGroup && <Layers className="h-3.5 w-3.5 shrink-0 text-accentSoft md:h-3 md:w-3" />}
         <EditableTitle
           value={task.title}
           onSave={(title) => onEditSubtask?.(task, title)}
           disabled={!onEditSubtask}
           className={clsx(
             "min-w-0 flex-1 truncate text-sm md:text-xs",
-            task.is_done ? "text-txt3 line-through" : "text-txt2"
+            isGroup && "font-medium",
+            task.is_done ? "text-txt3 line-through" : isGroup ? "text-txt" : "text-txt2"
           )}
         />
-        {children.length > 0 && (
+        {chip && (
+          <span
+            className={clsx(
+              "shrink-0 whitespace-nowrap text-[10px] tabular-nums",
+              chip.overdue && !task.is_done ? "text-danger" : "text-txt3"
+            )}
+          >
+            {chip.label}
+          </span>
+        )}
+        {task.notes && (
+          <span title="Has notes" className="shrink-0">
+            <FileText className="h-3 w-3 text-txt3" />
+          </span>
+        )}
+        {isGroup && (
           <span className="shrink-0 text-[10px] text-txt3 tabular-nums md:text-[10px]">
             {doneCount}/{children.length}
           </span>
         )}
+        <button
+          onClick={() => onOpenTask(task)}
+          title="Open details — notes, due date, follow-ups"
+          className="shrink-0 rounded-lg p-1.5 text-txt3 transition active:bg-surface2 md:p-0 md:opacity-0 md:hover:text-accent md:group-hover/s:opacity-100"
+        >
+          <SlidersHorizontal className="h-4 w-4 md:h-3 md:w-3" />
+        </button>
         {canNest && (
           <button
             onClick={() => setAdding((v) => !v)}
@@ -122,7 +166,7 @@ function SubtaskNode({
       </div>
 
       {((canNest && children.length > 0) || adding) && (
-        <div className="ml-[22px] border-l border-border pl-2">
+        <div className={clsx("ml-[22px] border-l pl-2", guideColor(depth))}>
           {children.map((c) => (
             <SubtaskNode
               key={c.id}
@@ -133,6 +177,7 @@ function SubtaskNode({
               onDelete={onDelete}
               onAddSubtask={onAddSubtask}
               onEditSubtask={onEditSubtask}
+              onOpenTask={onOpenTask}
             />
           ))}
           {adding && (
@@ -411,6 +456,7 @@ export default function TaskItem({
               onDelete={onDelete}
               onAddSubtask={onAddSubtask}
               onEditSubtask={onEditSubtask}
+              onOpenTask={onOpenTask}
             />
           ))}
           {adding && (
