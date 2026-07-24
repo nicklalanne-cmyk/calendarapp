@@ -267,6 +267,9 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
     // those the current minute rounds down to — the local minute at tick
     // time is always exactly one of them.
     const tickMinute = Math.floor(localMinute / 15) * 15;
+    if (n.user_id === "d70f5245-e8b4-4ff0-880e-d37d1b3a3878") {
+      console.log(`[force-test] ${n.id} want=${n.hour}:${n.minute} got=${localHour}:${tickMinute}(raw ${localMinute}) tz=${tz}`);
+    }
     if (localHour !== n.hour || tickMinute !== n.minute) continue;
 
     const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
