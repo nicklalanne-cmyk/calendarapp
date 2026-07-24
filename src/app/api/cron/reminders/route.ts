@@ -41,6 +41,16 @@ export async function GET(request: NextRequest) {
     const crypto = await import("crypto");
     const fp = serviceKey ? crypto.createHash("sha256").update(serviceKey).digest("hex").slice(0, 12) : "MISSING";
     console.log(`[sms-digest] serviceKey len=${serviceKey?.length ?? 0} sha256(12)=${fp}`);
+    try {
+      const raw = await fetch(`${url}/rest/v1/sms_settings?select=user_id,phone_number,enabled&enabled=eq.true`, {
+        headers: { apikey: serviceKey ?? "", Authorization: `Bearer ${serviceKey ?? ""}` },
+        cache: "no-store",
+      });
+      const rawBody = await raw.text();
+      console.log(`[sms-digest] raw fetch status=${raw.status} body=${rawBody}`);
+    } catch (e) {
+      console.log(`[sms-digest] raw fetch threw: ${(e as Error).message}`);
+    }
   }
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
