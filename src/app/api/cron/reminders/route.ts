@@ -37,21 +37,6 @@ export async function GET(request: NextRequest) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  {
-    const crypto = await import("crypto");
-    const fp = serviceKey ? crypto.createHash("sha256").update(serviceKey).digest("hex").slice(0, 12) : "MISSING";
-    console.log(`[sms-digest] serviceKey len=${serviceKey?.length ?? 0} sha256(12)=${fp}`);
-    try {
-      const raw = await fetch(`${url}/rest/v1/sms_settings?select=user_id,phone_number,enabled&enabled=eq.true`, {
-        headers: { apikey: serviceKey ?? "", Authorization: `Bearer ${serviceKey ?? ""}` },
-        cache: "no-store",
-      });
-      const rawBody = await raw.text();
-      console.log(`[sms-digest] raw fetch status=${raw.status} body=${rawBody}`);
-    } catch (e) {
-      console.log(`[sms-digest] raw fetch threw: ${(e as Error).message}`);
-    }
-  }
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
 
@@ -211,13 +196,10 @@ export async function GET(request: NextRequest) {
  * increments in the UI so they align with this cron's own tick cadence).
  * Dedup is a row in sms_log keyed on (notification.id, local date). */
 async function runSmsNotifications(db: SupabaseClient): Promise<number> {
-  const { data: settingsRows, error: settingsErr } = await db
+  const { data: settingsRows } = await db
     .from("sms_settings")
     .select("user_id, phone_number, enabled")
     .eq("enabled", true);
-  console.log(
-    `[sms-digest] sms_settings rows=${settingsRows?.length ?? "null"} error=${settingsErr ? JSON.stringify(settingsErr) : "none"} raw=${JSON.stringify(settingsRows)}`
-  );
   const smsSettings = (settingsRows as { user_id: string; phone_number: string | null; enabled: boolean }[] | null) ?? [];
   const withPhone = smsSettings.filter((s) => s.phone_number);
   if (withPhone.length === 0) return 0;
@@ -238,8 +220,8 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
       findDueTaskReminders(db, userIds, now, 15),
       findDueEventReminders(db, userIds, now, 15),
     ]);
-  } catch (e) {
-    console.log("[sms-digest] per-item reminders threw:", (e as Error).message);
+  } catch {
+    // leave taskReminders/eventReminders empty for this tick; next tick retries
   }
   for (const m of [...taskReminders.map((m) => ({ m, kind: "task" as const })), ...eventReminders.map((m) => ({ m, kind: "event" as const }))]) {
     const phone = phoneByUser.get(m.m.userId);
@@ -276,10 +258,7 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
 
   for (const n of notifs) {
     const phone = phoneByUser.get(n.user_id);
-    if (!phone) {
-      console.log(`[sms-digest] skip ${n.id} (${n.user_id}): no phone`);
-      continue;
-    }
+    if (!phone) continue;
 
     const tz = tzByUser.get(n.user_id) ?? "UTC";
     const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false }).format(now));
@@ -288,18 +267,12 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
     // those the current minute rounds down to — the local minute at tick
     // time is always exactly one of them.
     const tickMinute = Math.floor(localMinute / 15) * 15;
-    console.log(
-      `[sms-digest] check ${n.id} (${n.user_id}) kind=${n.kind} tz=${tz} want=${n.hour}:${n.minute} got=${localHour}:${tickMinute}(raw ${localMinute})`
-    );
     if (localHour !== n.hour || tickMinute !== n.minute) continue;
 
     const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
     const dedupeKey = `sms:${n.id}:${localDate}`;
     const { error: logErr } = await db.from("sms_log").insert({ user_id: n.user_id, dedupe_key: dedupeKey });
-    if (logErr) {
-      console.log(`[sms-digest] skip ${n.id}: sms_log insert error`, logErr);
-      continue; // already sent today
-    }
+    if (logErr) continue; // already sent today
 
     let body: string;
     try {
@@ -310,17 +283,12 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
       } else {
         body = n.message || "";
       }
-    } catch (e) {
-      console.log(`[sms-digest] build error for ${n.id}:`, (e as Error).message);
+    } catch {
       continue;
     }
-    if (!body) {
-      console.log(`[sms-digest] empty body for ${n.id}, skipping send`);
-      continue;
-    }
+    if (!body) continue;
 
     const result = await sendSms(phone, body);
-    console.log(`[sms-digest] sendSms ${n.id} ok=${result.ok} ${result.ok ? "" : JSON.stringify(result)}`);
     if (result.ok) sent++;
   }
   return sent;
