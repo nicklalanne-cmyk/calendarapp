@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquare, Plus, Trash2, Send, Loader2 } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Send, Loader2, Eye } from "lucide-react";
 import clsx from "clsx";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -54,6 +54,7 @@ export default function SmsNotifications() {
   const [newMinute, setNewMinute] = useState(0);
   const [newMessage, setNewMessage] = useState("");
   const [testing, setTesting] = useState(false);
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
 
   const load = async () => {
     const { data: u } = await supabase.auth.getUser();
@@ -182,6 +183,27 @@ export default function SmsNotifications() {
     }
   };
 
+  /** For the "today_schedule" / "accomplished_today" rows: sends the REAL,
+   * live-built digest (real connected Google Calendar events + real tasks)
+   * to your own number right now, instead of waiting for the scheduled
+   * time — so you can confirm exactly what will actually be sent. */
+  const previewNotif = async (n: Notification) => {
+    if (!phone.trim()) return toast("Add a phone number first.", "error");
+    setPreviewingId(n.id);
+    try {
+      const res = await fetch("/api/sms/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: phone.trim(), kind: n.kind }),
+      });
+      const j = await res.json();
+      if (!res.ok) return toast(j.error ?? "Couldn't send that.", "error");
+      toast("Live preview sent — check your phone.");
+    } finally {
+      setPreviewingId(null);
+    }
+  };
+
   if (!loaded) return null;
 
   return (
@@ -281,6 +303,16 @@ export default function SmsNotifications() {
                 ))
               )}
             </select>
+            {(n.kind === "today_schedule" || n.kind === "accomplished_today") && (
+              <button
+                onClick={() => previewNotif(n)}
+                disabled={previewingId === n.id}
+                title="Send a live preview of this text right now, with your real calendar events"
+                className="rounded-lg p-1.5 text-txt3 transition hover:bg-surface3 hover:text-accent disabled:opacity-40"
+              >
+                {previewingId === n.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            )}
             <button
               onClick={() => deleteNotif(n)}
               className="rounded-lg p-1.5 text-txt3 transition hover:bg-surface3 hover:text-danger"
