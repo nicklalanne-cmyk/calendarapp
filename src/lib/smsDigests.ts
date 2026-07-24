@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGoogleAccessToken } from "@/lib/google/tokens";
 import { listCalendars, listEventsRaw } from "@/lib/google/calendar";
+import { motivationalQuoteFor, introspectiveQuoteFor } from "@/lib/quotes";
 
 /**
  * Server-only. Builds the plain-text body for the scheduled SMS digests and
@@ -11,6 +12,7 @@ import { listCalendars, listEventsRaw } from "@/lib/google/calendar";
 
 type GoogleAccountRow = { id: string; refresh_token: string; is_default: boolean };
 type TaskRow = { id: string; title: string; due_date: string | null; scheduled_start: string | null; location: string | null };
+type DayEvent = { title: string; start: string; allDay: boolean; location: string | null };
 
 function fmtTime(iso: string): string {
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
@@ -21,17 +23,10 @@ function fmtDayLabel(localDate: string, tz: string): string {
   return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: tz }).format(d);
 }
 
-/** Today's calendar events (across every connected Google account) + tasks
- * due today, formatted for a single SMS. Bulleted; includes each event's/
- * task's address when one is set. */
-export async function buildTodayScheduleText(
-  db: SupabaseClient,
-  userId: string,
-  localDate: string,
-  tz: string
-): Promise<string> {
-  const dayLabel = fmtDayLabel(localDate, tz);
-
+/** Every calendar event (across every connected Google account) on the
+ * given local day, sorted by start time. Shared by both digests — the
+ * morning one shows what's coming up, the evening one shows what happened. */
+async function fetchTodaysEvents(db: SupabaseClient, userId: string, localDate: string): Promise<DayEvent[]> {
   const { data: accountRows } = await db.from("google_accounts").select("id, refresh_token, is_default").eq("user_id", userId);
   const accounts = (accountRows as GoogleAccountRow[] | null) ?? [];
 
@@ -40,7 +35,7 @@ export async function buildTodayScheduleText(
   const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayEnd.getDate() + 1);
 
-  const events: { title: string; start: string; allDay: boolean; location: string | null }[] = [];
+  const events: DayEvent[] = [];
   await Promise.all(
     accounts.map(async (acc) => {
       const token = await getGoogleAccessToken(acc.refresh_token);
@@ -72,6 +67,31 @@ export async function buildTodayScheduleText(
     })
   );
   events.sort((a, b) => a.start.localeCompare(b.start));
+  return events;
+}
+
+function formatEventBullets(events: DayEvent[], max = 8): string[] {
+  const lines: string[] = [];
+  for (const e of events.slice(0, max)) {
+    const loc = e.location ? ` — ${e.location}` : "";
+    lines.push(e.allDay ? `• All day: ${e.title}${loc}` : `• ${fmtTime(e.start)} ${e.title}${loc}`);
+  }
+  if (events.length > max) lines.push(`…+${events.length - max} more on your calendar`);
+  return lines;
+}
+
+/** Today's calendar events (across every connected Google account) + tasks
+ * due today, formatted for a single SMS. Bulleted; includes each event's/
+ * task's address when one is set. Ends with a quote-of-the-day to kick off
+ * the morning. */
+export async function buildTodayScheduleText(
+  db: SupabaseClient,
+  userId: string,
+  localDate: string,
+  tz: string
+): Promise<string> {
+  const dayLabel = fmtDayLabel(localDate, tz);
+  const events = await fetchTodaysEvents(db, userId, localDate);
 
   const { data: taskRows } = await db
     .from("tasks")
@@ -87,11 +107,7 @@ export async function buildTodayScheduleText(
   const lines: string[] = [`Today (${dayLabel}):`];
 
   if (events.length > 0) {
-    for (const e of events.slice(0, 8)) {
-      const loc = e.location ? ` — ${e.location}` : "";
-      lines.push(e.allDay ? `• All day: ${e.title}${loc}` : `• ${fmtTime(e.start)} ${e.title}${loc}`);
-    }
-    if (events.length > 8) lines.push(`…+${events.length - 8} more on your calendar`);
+    lines.push(...formatEventBullets(events));
   } else {
     lines.push("No calendar events.");
   }
@@ -105,11 +121,15 @@ export async function buildTodayScheduleText(
     if (tasks.length > 8) lines.push(`…+${tasks.length - 8} more`);
   }
 
+  lines.push("", motivationalQuoteFor(localDate));
+
   return lines.join("\n");
 }
 
-/** Tasks actually completed today (via the completed_at trigger), formatted
- * for a single SMS as a bulleted list. */
+/** Everything that happened today: calendar events that were on the books
+ * plus tasks actually completed (via the completed_at trigger), formatted
+ * for a single SMS as bulleted lists. Ends with a quote-of-the-day to close
+ * out the evening. */
 export async function buildAccomplishedTodayText(
   db: SupabaseClient,
   userId: string,
@@ -121,22 +141,37 @@ export async function buildAccomplishedTodayText(
   const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayEnd.getDate() + 1);
 
-  const { data } = await db
-    .from("tasks")
-    .select("id, title")
-    .eq("user_id", userId)
-    .eq("is_done", true)
-    .is("deleted_at", null)
-    .gte("completed_at", dayStart.toISOString())
-    .lt("completed_at", dayEnd.toISOString());
+  const [events, { data }] = await Promise.all([
+    fetchTodaysEvents(db, userId, localDate),
+    db
+      .from("tasks")
+      .select("id, title")
+      .eq("user_id", userId)
+      .eq("is_done", true)
+      .is("deleted_at", null)
+      .gte("completed_at", dayStart.toISOString())
+      .lt("completed_at", dayEnd.toISOString()),
+  ]);
   const done = (data as { id: string; title: string }[] | null) ?? [];
 
-  if (done.length === 0) {
-    return `${dayLabel}: nothing checked off today. Tomorrow's a clean slate.`;
+  const lines: string[] = [];
+  if (events.length === 0 && done.length === 0) {
+    lines.push(`${dayLabel}: nothing on the calendar or checked off today. Tomorrow's a clean slate.`);
+  } else {
+    lines.push(`${dayLabel}:`);
+    if (events.length > 0) {
+      lines.push(`Events (${events.length}):`);
+      lines.push(...formatEventBullets(events));
+    }
+    if (done.length > 0) {
+      lines.push(`Completed ${done.length} ${done.length === 1 ? "task" : "tasks"}:`);
+      for (const t of done.slice(0, 12)) lines.push(`• ${t.title}`);
+      if (done.length > 12) lines.push(`…+${done.length - 12} more`);
+    }
   }
-  const lines = [`Nice work today (${dayLabel})! You completed ${done.length} ${done.length === 1 ? "task" : "tasks"}:`];
-  for (const t of done.slice(0, 12)) lines.push(`• ${t.title}`);
-  if (done.length > 12) lines.push(`…+${done.length - 12} more`);
+
+  lines.push("", introspectiveQuoteFor(localDate));
+
   return lines.join("\n");
 }
 
