@@ -37,6 +37,11 @@ export async function GET(request: NextRequest) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  {
+    const crypto = await import("crypto");
+    const fp = serviceKey ? crypto.createHash("sha256").update(serviceKey).digest("hex").slice(0, 12) : "MISSING";
+    console.log(`[sms-digest] serviceKey len=${serviceKey?.length ?? 0} sha256(12)=${fp}`);
+  }
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
 
