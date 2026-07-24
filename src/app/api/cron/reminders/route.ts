@@ -196,7 +196,13 @@ export async function GET(request: NextRequest) {
  * increments in the UI so they align with this cron's own tick cadence).
  * Dedup is a row in sms_log keyed on (notification.id, local date). */
 async function runSmsNotifications(db: SupabaseClient): Promise<number> {
-  const { data: settingsRows } = await db.from("sms_settings").select("user_id, phone_number, enabled").eq("enabled", true);
+  const { data: settingsRows, error: settingsErr } = await db
+    .from("sms_settings")
+    .select("user_id, phone_number, enabled")
+    .eq("enabled", true);
+  console.log(
+    `[sms-digest] sms_settings rows=${settingsRows?.length ?? "null"} error=${settingsErr ? JSON.stringify(settingsErr) : "none"} raw=${JSON.stringify(settingsRows)}`
+  );
   const smsSettings = (settingsRows as { user_id: string; phone_number: string | null; enabled: boolean }[] | null) ?? [];
   const withPhone = smsSettings.filter((s) => s.phone_number);
   if (withPhone.length === 0) return 0;
