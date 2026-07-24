@@ -210,10 +210,16 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
   // specific event or task (EventModal/TaskModal), independent of the daily
   // digests below. Every enabled user is checked once per tick regardless of
   // whether they have any sms_notifications rows at all.
-  const [taskReminders, eventReminders] = await Promise.all([
-    findDueTaskReminders(db, userIds, now, 15),
-    findDueEventReminders(db, userIds, now, 15),
-  ]);
+  let taskReminders: Awaited<ReturnType<typeof findDueTaskReminders>> = [];
+  let eventReminders: Awaited<ReturnType<typeof findDueEventReminders>> = [];
+  try {
+    [taskReminders, eventReminders] = await Promise.all([
+      findDueTaskReminders(db, userIds, now, 15),
+      findDueEventReminders(db, userIds, now, 15),
+    ]);
+  } catch (e) {
+    console.log("[sms-digest] per-item reminders threw:", (e as Error).message);
+  }
   for (const m of [...taskReminders.map((m) => ({ m, kind: "task" as const })), ...eventReminders.map((m) => ({ m, kind: "event" as const }))]) {
     const phone = phoneByUser.get(m.m.userId);
     if (!phone) continue;
@@ -249,7 +255,10 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
 
   for (const n of notifs) {
     const phone = phoneByUser.get(n.user_id);
-    if (!phone) continue;
+    if (!phone) {
+      console.log(`[sms-digest] skip ${n.id} (${n.user_id}): no phone`);
+      continue;
+    }
 
     const tz = tzByUser.get(n.user_id) ?? "UTC";
     const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false }).format(now));
@@ -258,24 +267,39 @@ async function runSmsNotifications(db: SupabaseClient): Promise<number> {
     // those the current minute rounds down to — the local minute at tick
     // time is always exactly one of them.
     const tickMinute = Math.floor(localMinute / 15) * 15;
+    console.log(
+      `[sms-digest] check ${n.id} (${n.user_id}) kind=${n.kind} tz=${tz} want=${n.hour}:${n.minute} got=${localHour}:${tickMinute}(raw ${localMinute})`
+    );
     if (localHour !== n.hour || tickMinute !== n.minute) continue;
 
     const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
     const dedupeKey = `sms:${n.id}:${localDate}`;
     const { error: logErr } = await db.from("sms_log").insert({ user_id: n.user_id, dedupe_key: dedupeKey });
-    if (logErr) continue; // already sent today
+    if (logErr) {
+      console.log(`[sms-digest] skip ${n.id}: sms_log insert error`, logErr);
+      continue; // already sent today
+    }
 
     let body: string;
-    if (n.kind === "today_schedule") {
-      body = await buildTodayScheduleText(db, n.user_id, localDate, tz);
-    } else if (n.kind === "accomplished_today") {
-      body = await buildAccomplishedTodayText(db, n.user_id, localDate, tz);
-    } else {
-      body = n.message || "";
+    try {
+      if (n.kind === "today_schedule") {
+        body = await buildTodayScheduleText(db, n.user_id, localDate, tz);
+      } else if (n.kind === "accomplished_today") {
+        body = await buildAccomplishedTodayText(db, n.user_id, localDate, tz);
+      } else {
+        body = n.message || "";
+      }
+    } catch (e) {
+      console.log(`[sms-digest] build error for ${n.id}:`, (e as Error).message);
+      continue;
     }
-    if (!body) continue;
+    if (!body) {
+      console.log(`[sms-digest] empty body for ${n.id}, skipping send`);
+      continue;
+    }
 
     const result = await sendSms(phone, body);
+    console.log(`[sms-digest] sendSms ${n.id} ok=${result.ok} ${result.ok ? "" : JSON.stringify(result)}`);
     if (result.ok) sent++;
   }
   return sent;
